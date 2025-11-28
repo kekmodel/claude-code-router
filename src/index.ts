@@ -192,6 +192,14 @@ async function run(options: RunOptions = {}) {
         config,
         event
       });
+
+      // 🔍 디버깅: CCR이 받은 요청 로깅
+      console.log('\n=== 🔍 CCR RECEIVED REQUEST ===');
+      console.log('URL:', req.url);
+      console.log('Method:', req.method);
+      console.log('Headers:', JSON.stringify(req.headers, null, 2));
+      console.log('Body:', JSON.stringify(req.body, null, 2));
+      console.log('=== END REQUEST ===\n');
     }
   });
   server.addHook("onError", async (request, reply, error) => {
