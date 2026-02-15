@@ -5,7 +5,7 @@ import { join } from "path";
 import { initConfig, initDir } from "./utils";
 import { createServer } from "./server";
 import { apiKeyAuth } from "./middleware/auth";
-import { CONFIG_FILE, HOME_DIR, listPresets, getCopilotAccessToken, getAnthropicAccessToken, getAntigravityAccessToken } from "@CCR/shared";
+import { CONFIG_FILE, HOME_DIR, listPresets, getCopilotAccessToken, getAnthropicAccessToken, getAntigravityAccessToken, getCodexAccessToken, getGeminiAccessToken } from "@CCR/shared";
 import { createStream } from 'rotating-file-stream';
 import { sessionUsageCache } from "@musistudio/llms";
 import { SSEParserTransform } from "./utils/SSEParser.transform";
@@ -93,6 +93,8 @@ const oauthTokenResolvers: Record<string, () => Promise<string>> = {
   copilot: getCopilotAccessToken,
   anthropic: getAnthropicAccessToken,
   antigravity: getAntigravityAccessToken,
+  codex: getCodexAccessToken,
+  gemini: getGeminiAccessToken,
 };
 
 /**

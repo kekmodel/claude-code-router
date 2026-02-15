@@ -6,6 +6,8 @@ import {
   startCopilotLogin,
   startAnthropicLogin,
   startAntigravityLogin,
+  startCodexLogin,
+  startGeminiLogin,
   listTokens,
   deleteToken,
   getToken,
@@ -27,6 +29,8 @@ Available OAuth providers:
   copilot             GitHub Copilot (Device Code Flow)
   anthropic           Anthropic Claude (Auth Code + PKCE)
   antigravity         Antigravity via Google OAuth
+  codex               OpenAI Codex (Auth Code + PKCE)
+  gemini              Google Gemini (Google OAuth)
 
 Examples:
   ccr auth login copilot
@@ -43,19 +47,25 @@ export async function handleAuthCommand(args: string[]): Promise<void> {
   const subcommand = args[0];
   const provider = args[1];
 
+  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+    console.log(AUTH_HELP);
+    return;
+  }
+
   switch (subcommand) {
     case "login":
-      if (!provider) {
-        console.error("Error: Provider name is required.");
+      if (!provider || provider === "--help" || provider === "-h") {
+        console.log("Usage: ccr auth login <provider>\n");
         console.log("Available providers:", getAvailableOAuthProviders().join(", "));
-        process.exit(1);
+        return;
       }
       await handleLogin(provider);
       break;
     case "logout":
-      if (!provider) {
-        console.error("Error: Provider name is required.");
-        process.exit(1);
+      if (!provider || provider === "--help" || provider === "-h") {
+        console.log("Usage: ccr auth logout <provider>\n");
+        console.log("Available providers:", getAvailableOAuthProviders().join(", "));
+        return;
       }
       await handleLogout(provider);
       break;
@@ -84,6 +94,12 @@ async function handleLogin(provider: string): Promise<void> {
       break;
     case "antigravity":
       await loginAntigravity();
+      break;
+    case "codex":
+      await loginCodex();
+      break;
+    case "gemini":
+      await loginGemini();
       break;
     default:
       console.error(`Unknown OAuth provider: ${provider}`);
@@ -194,6 +210,77 @@ async function loginAntigravity(): Promise<void> {
     "auth_type": "oauth",
     "oauth_provider": "antigravity",
     "models": ["claude-sonnet-4-5", "gemini-2.5-pro"]
+  }
+`);
+  } catch (error: any) {
+    console.error("Authentication failed:", error.message);
+    process.exit(1);
+  }
+}
+
+/**
+ * OpenAI Codex login via Authorization Code + PKCE
+ */
+async function loginCodex(): Promise<void> {
+  console.log("Authenticating with OpenAI Codex...\n");
+  console.log("Requires a ChatGPT Plus/Pro subscription.\n");
+
+  try {
+    const { authUrl, waitForAuth } = await startCodexLogin();
+
+    console.log("Opening browser for authentication...\n");
+    openBrowser(authUrl);
+    console.log("If the browser didn't open, visit:");
+    console.log(`  ${authUrl}\n`);
+    console.log("Waiting for authorization...");
+
+    const token = await waitForAuth();
+
+    console.log("\nAuthentication successful!");
+    console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
+    console.log("\nYou can now use OpenAI Codex models in your config:");
+    console.log(`
+  {
+    "name": "codex",
+    "api_base_url": "https://api.openai.com",
+    "auth_type": "oauth",
+    "oauth_provider": "codex",
+    "models": ["gpt-4o", "o3-mini", "codex-mini"]
+  }
+`);
+  } catch (error: any) {
+    console.error("Authentication failed:", error.message);
+    process.exit(1);
+  }
+}
+
+/**
+ * Google Gemini login via Google OAuth
+ */
+async function loginGemini(): Promise<void> {
+  console.log("Authenticating with Google Gemini...\n");
+
+  try {
+    const { authUrl, waitForAuth } = await startGeminiLogin();
+
+    console.log("Opening browser for Google authentication...\n");
+    openBrowser(authUrl);
+    console.log("If the browser didn't open, visit:");
+    console.log(`  ${authUrl}\n`);
+    console.log("Waiting for authorization...");
+
+    const token = await waitForAuth();
+
+    console.log("\nAuthentication successful!");
+    console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
+    console.log("\nYou can now use Google Gemini models in your config:");
+    console.log(`
+  {
+    "name": "gemini",
+    "api_base_url": "https://generativelanguage.googleapis.com",
+    "auth_type": "oauth",
+    "oauth_provider": "gemini",
+    "models": ["gemini-2.5-pro", "gemini-2.5-flash"]
   }
 `);
   } catch (error: any) {

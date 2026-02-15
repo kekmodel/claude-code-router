@@ -155,6 +155,10 @@ export function OAuthManagement() {
         return { displayName: 'Anthropic Claude', description: t('oauth.anthropic_description') };
       case 'antigravity':
         return { displayName: 'Antigravity', description: t('oauth.antigravity_description') };
+      case 'codex':
+        return { displayName: 'OpenAI Codex', description: t('oauth.codex_description') };
+      case 'gemini':
+        return { displayName: 'Google Gemini', description: t('oauth.gemini_description') };
       default:
         return { displayName: name, description: '' };
     }

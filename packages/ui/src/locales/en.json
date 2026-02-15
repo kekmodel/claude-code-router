@@ -315,6 +315,8 @@
     "copilot_description": "GitHub Copilot via Device Code Flow",
     "anthropic_description": "Anthropic Claude via OAuth (Auth Code + PKCE)",
     "antigravity_description": "Antigravity via Google OAuth",
+    "codex_description": "OpenAI Codex via Auth Code + PKCE (ChatGPT Plus/Pro)",
+    "gemini_description": "Google Gemini via Google OAuth (Code Assist)",
     "login": "Login",
     "logout": "Logout",
     "logging_in": "Logging in...",

@@ -29,11 +29,13 @@ export interface AuthStore {
 export interface OAuthProviderConfig {
   name: string;
   clientId: string;
+  clientSecret?: string;       // Required by Google OAuth for installed apps
   scopes?: string[];
   deviceCodeUrl?: string;      // For Device Code Flow
   tokenUrl: string;
   authorizationUrl?: string;   // For Authorization Code Flow
   callbackPort?: number;       // Local callback server port
+  callbackPath?: string;       // Custom callback path (default: /callback)
   extraHeaders?: Record<string, string>;
   extraParams?: Record<string, string>;
 }

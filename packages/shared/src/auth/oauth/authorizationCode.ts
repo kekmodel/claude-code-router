@@ -36,7 +36,8 @@ export function startAuthCodeFlow(
   }
 
   const port = config.callbackPort || 8085;
-  const redirectUri = `http://127.0.0.1:${port}/callback`;
+  const callbackPath = config.callbackPath || "/callback";
+  const redirectUri = `http://127.0.0.1:${port}${callbackPath}`;
 
   // Build authorization URL
   const params = new URLSearchParams({
@@ -64,7 +65,7 @@ export function startAuthCodeFlow(
   const server = createServer((req, res) => {
     const url = new URL(req.url || "/", `http://127.0.0.1:${port}`);
 
-    if (url.pathname === "/callback") {
+    if (url.pathname === callbackPath) {
       const code = url.searchParams.get("code");
       const returnedState = url.searchParams.get("state");
       const error = url.searchParams.get("error");
@@ -123,10 +124,12 @@ export async function exchangeCodeForToken(
   redirectUri?: string
 ): Promise<OAuthTokenResponse> {
   const port = config.callbackPort || 8085;
-  const callbackUri = redirectUri || `http://127.0.0.1:${port}/callback`;
+  const callbackPath = config.callbackPath || "/callback";
+  const callbackUri = redirectUri || `http://127.0.0.1:${port}${callbackPath}`;
 
   const params = new URLSearchParams({
     client_id: config.clientId,
+    ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
     grant_type: "authorization_code",
     code,
     redirect_uri: callbackUri,

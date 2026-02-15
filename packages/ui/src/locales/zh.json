@@ -314,6 +314,8 @@
     "copilot_description": "通过 Device Code Flow 认证 GitHub Copilot",
     "anthropic_description": "通过 OAuth (Auth Code + PKCE) 认证 Anthropic Claude",
     "antigravity_description": "通过 Google OAuth 认证 Antigravity",
+    "codex_description": "通过 Auth Code + PKCE 认证 OpenAI Codex (ChatGPT Plus/Pro)",
+    "gemini_description": "通过 Google OAuth 认证 Google Gemini (Code Assist)",
     "login": "登录",
     "logout": "退出",
     "logging_in": "登录中...",
