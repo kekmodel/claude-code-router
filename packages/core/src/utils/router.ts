@@ -121,12 +121,25 @@ const getProjectSpecificRouter = async (
   return undefined; // Return undefined to use original configuration
 };
 
+// Parse "provider,model,reasoningLevel" format
+function parseRouterModel(modelStr: string): { model: string; reasoningLevel?: string } {
+  if (!modelStr) return { model: modelStr };
+  const parts = modelStr.split(",");
+  if (parts.length >= 3) {
+    return {
+      model: `${parts[0]},${parts[1]}`,
+      reasoningLevel: parts.slice(2).join(","),
+    };
+  }
+  return { model: modelStr };
+}
+
 const getUseModel = async (
   req: any,
   tokenCount: number,
   configService: ConfigService,
   lastUsage?: Usage | undefined
-): Promise<{ model: string; scenarioType: RouterScenarioType }> => {
+): Promise<{ model: string; scenarioType: RouterScenarioType; reasoningLevel?: string }> => {
   const projectSpecificRouter = await getProjectSpecificRouter(req, configService);
   const providers = configService.get<any[]>("providers") || [];
   const Router = projectSpecificRouter || configService.get("Router");
@@ -156,7 +169,8 @@ const getUseModel = async (
     req.log.info(
       `Using long context model due to token count: ${tokenCount}, threshold: ${longContextThreshold}`
     );
-    return { model: Router.longContext, scenarioType: 'longContext' };
+    const parsed = parseRouterModel(Router.longContext);
+    return { model: parsed.model, scenarioType: 'longContext', reasoningLevel: parsed.reasoningLevel };
   }
   if (
     req.body?.system?.length > 1 &&
@@ -181,7 +195,8 @@ const getUseModel = async (
     globalRouter?.background
   ) {
     req.log.info(`Using background model for ${req.body.model}`);
-    return { model: globalRouter.background, scenarioType: 'background' };
+    const parsedBg = parseRouterModel(globalRouter.background);
+    return { model: parsedBg.model, scenarioType: 'background', reasoningLevel: parsedBg.reasoningLevel };
   }
   // The priority of websearch must be higher than thinking.
   if (
@@ -189,14 +204,17 @@ const getUseModel = async (
     req.body.tools.some((tool: any) => tool.type?.startsWith("web_search")) &&
     Router?.webSearch
   ) {
-    return { model: Router.webSearch, scenarioType: 'webSearch' };
+    const parsedWs = parseRouterModel(Router.webSearch);
+    return { model: parsedWs.model, scenarioType: 'webSearch', reasoningLevel: parsedWs.reasoningLevel };
   }
   // if exits thinking, use the think model
   if (req.body.thinking && Router?.think) {
     req.log.info(`Using think model for ${req.body.thinking}`);
-    return { model: Router.think, scenarioType: 'think' };
+    const parsedThink = parseRouterModel(Router.think);
+    return { model: parsedThink.model, scenarioType: 'think', reasoningLevel: parsedThink.reasoningLevel };
   }
-  return { model: Router?.default, scenarioType: 'default' };
+  const parsedDefault = parseRouterModel(Router?.default);
+  return { model: parsedDefault.model, scenarioType: 'default', reasoningLevel: parsedDefault.reasoningLevel };
 };
 
 export interface RouterContext {
@@ -283,6 +301,9 @@ export const router = async (req: any, _res: any, context: RouterContext) => {
       const result = await getUseModel(req, tokenCount, configService, lastMessageUsage);
       model = result.model;
       req.scenarioType = result.scenarioType;
+      if (result.reasoningLevel) {
+        req.routerReasoningLevel = result.reasoningLevel;
+      }
     } else {
       // Custom router doesn't provide scenario type, default to 'default'
       req.scenarioType = 'default';

@@ -666,6 +666,47 @@ export const createServer = async (config: any): Promise<any> => {
     }
   });
 
+  // Auto-sync: Register OAuth-discovered models into provider model routes
+  app.get("/api/oauth/sync-models/:provider", async (req: any, reply: any) => {
+    const providerName = (req.params as any).provider;
+    const config = await readConfigFile();
+    const providers = Array.isArray(config.Providers) ? config.Providers : [];
+    const providerConfig = providers.find(
+      (p: any) => p?.name === providerName && p?.auth_type === "oauth"
+    );
+
+    if (!providerConfig) {
+      return reply.status(404).send({ error: `OAuth provider '${providerName}' not found` });
+    }
+
+    try {
+      const oauthModels = await fetchOAuthModels(providerConfig.oauth_provider);
+      const existingModels = new Set(providerConfig.models || []);
+      let added = 0;
+
+      for (const om of oauthModels) {
+        if (!existingModels.has(om.id)) {
+          providerConfig.models = providerConfig.models || [];
+          providerConfig.models.push(om.id);
+          added++;
+        }
+      }
+
+      if (added > 0) {
+        await writeConfigFile(config);
+      }
+
+      return {
+        provider: providerName,
+        totalModels: providerConfig.models.length,
+        added,
+        models: providerConfig.models,
+      };
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
   // Helper function: Load preset from ZIP
   async function loadPresetFromZip(zipFile: string): Promise<PresetFile> {
     const zip = new AdmZip(zipFile);

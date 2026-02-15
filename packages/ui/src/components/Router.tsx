@@ -15,6 +15,22 @@ interface RouterModel {
   defaultReasoningLevel?: string;
 }
 
+// Parse current router value to extract model and reasoning level
+const parseRouterValue = (value: string) => {
+  if (!value) return { model: "", reasoningLevel: "" };
+  const parts = value.split(",");
+  if (parts.length >= 3) {
+    return { model: `${parts[0]},${parts[1]}`, reasoningLevel: parts.slice(2).join(",") };
+  }
+  return { model: value, reasoningLevel: "" };
+};
+
+// Build router value from model + reasoning level
+const buildRouterValue = (model: string, reasoningLevel: string) => {
+  if (reasoningLevel) return `${model},${reasoningLevel}`;
+  return model;
+};
+
 export function Router() {
   const { t } = useTranslation();
   const { config, setConfig } = useConfig();
@@ -54,7 +70,6 @@ export function Router() {
   };
 
   const handleRouterChange = (field: string, value: string | number) => {
-    // Handle case where config.Router might be null or undefined
     const currentRouter = config.Router || {};
     const newRouter = { ...currentRouter, [field]: value };
     setConfig({ ...config, Router: newRouter });
@@ -62,6 +77,31 @@ export function Router() {
 
   const handleForceUseImageAgentChange = (value: boolean) => {
     setConfig({ ...config, forceUseImageAgent: value });
+  };
+
+  // Get reasoning levels for a model value
+  const getReasoningLevels = (modelValue: string): string[] => {
+    const found = routerModels.find((m) => m.value === modelValue);
+    return found?.reasoningLevels || [];
+  };
+
+  // Get default reasoning level for a model value
+  const getDefaultReasoningLevel = (modelValue: string): string => {
+    const found = routerModels.find((m) => m.value === modelValue);
+    return found?.defaultReasoningLevel || "";
+  };
+
+  // Handle model selection change for a scenario
+  const handleModelSelect = (field: string, value: string) => {
+    const rl = getReasoningLevels(value);
+    const defaultRL = rl.length ? getDefaultReasoningLevel(value) : "";
+    handleRouterChange(field, buildRouterValue(value, defaultRL));
+  };
+
+  // Handle reasoning level change for a scenario
+  const handleReasoningChange = (field: string, currentValue: string, newReasoningLevel: string) => {
+    const { model } = parseRouterValue(currentValue);
+    handleRouterChange(field, buildRouterValue(model, newReasoningLevel));
   };
 
   // Fallback: use static config models if API fetch hasn't returned
@@ -85,6 +125,27 @@ export function Router() {
       })
     : fallbackOptions;
 
+  const selectClassName = "h-10 rounded-md border border-input bg-background px-2 py-1 text-sm";
+
+  // Render a reasoning level selector for a scenario field
+  const renderReasoningSelect = (field: string, currentValue: string) => {
+    const { model, reasoningLevel } = parseRouterValue(currentValue);
+    const levels = getReasoningLevels(model);
+    if (levels.length === 0) return null;
+    return (
+      <select
+        value={reasoningLevel}
+        onChange={(e) => handleReasoningChange(field, currentValue, e.target.value)}
+        className={selectClassName}
+      >
+        <option value="">{t("router.reasoningAuto")}</option>
+        {levels.map((level) => (
+          <option key={level} value={level}>{level}</option>
+        ))}
+      </select>
+    );
+  };
+
   return (
     <Card className="flex h-full flex-col rounded-lg border shadow-sm">
       <CardHeader className="border-b p-4">
@@ -93,49 +154,69 @@ export function Router() {
       <CardContent className="flex-grow space-y-5 overflow-y-auto p-4">
         <div className="space-y-2">
           <Label>{t("router.default")}</Label>
-          <Combobox
-            options={modelOptions}
-            value={routerConfig.default || ""}
-            onChange={(value) => handleRouterChange("default", value)}
-            placeholder={t("router.selectModel")}
-            searchPlaceholder={t("router.searchModel")}
-            emptyPlaceholder={t("router.noModelFound")}
-          />
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <Combobox
+                options={modelOptions}
+                value={parseRouterValue(routerConfig.default || "").model}
+                onChange={(value) => handleModelSelect("default", value)}
+                placeholder={t("router.selectModel")}
+                searchPlaceholder={t("router.searchModel")}
+                emptyPlaceholder={t("router.noModelFound")}
+              />
+            </div>
+            {renderReasoningSelect("default", routerConfig.default || "")}
+          </div>
         </div>
         <div className="space-y-2">
           <Label>{t("router.background")}</Label>
-          <Combobox
-            options={modelOptions}
-            value={routerConfig.background || ""}
-            onChange={(value) => handleRouterChange("background", value)}
-            placeholder={t("router.selectModel")}
-            searchPlaceholder={t("router.searchModel")}
-            emptyPlaceholder={t("router.noModelFound")}
-          />
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <Combobox
+                options={modelOptions}
+                value={parseRouterValue(routerConfig.background || "").model}
+                onChange={(value) => handleModelSelect("background", value)}
+                placeholder={t("router.selectModel")}
+                searchPlaceholder={t("router.searchModel")}
+                emptyPlaceholder={t("router.noModelFound")}
+              />
+            </div>
+            {renderReasoningSelect("background", routerConfig.background || "")}
+          </div>
         </div>
         <div className="space-y-2">
           <Label>{t("router.think")}</Label>
-          <Combobox
-            options={modelOptions}
-            value={routerConfig.think || ""}
-            onChange={(value) => handleRouterChange("think", value)}
-            placeholder={t("router.selectModel")}
-            searchPlaceholder={t("router.searchModel")}
-            emptyPlaceholder={t("router.noModelFound")}
-          />
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <Combobox
+                options={modelOptions}
+                value={parseRouterValue(routerConfig.think || "").model}
+                onChange={(value) => handleModelSelect("think", value)}
+                placeholder={t("router.selectModel")}
+                searchPlaceholder={t("router.searchModel")}
+                emptyPlaceholder={t("router.noModelFound")}
+              />
+            </div>
+            {renderReasoningSelect("think", routerConfig.think || "")}
+          </div>
         </div>
         <div className="space-y-2">
           <div className="flex items-center gap-4">
             <div className="flex-1">
               <Label>{t("router.longContext")}</Label>
-              <Combobox
-                options={modelOptions}
-                value={routerConfig.longContext || ""}
-                onChange={(value) => handleRouterChange("longContext", value)}
-                placeholder={t("router.selectModel")}
-                searchPlaceholder={t("router.searchModel")}
-                emptyPlaceholder={t("router.noModelFound")}
-              />
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <Combobox
+                    options={modelOptions}
+                    value={parseRouterValue(routerConfig.longContext || "").model}
+                    onChange={(value) => handleModelSelect("longContext", value)}
+                    placeholder={t("router.selectModel")}
+                    searchPlaceholder={t("router.searchModel")}
+                    emptyPlaceholder={t("router.noModelFound")}
+                  />
+                </div>
+                {renderReasoningSelect("longContext", routerConfig.longContext || "")}
+              </div>
             </div>
             <div className="w-48">
               <Label>{t("router.longContextThreshold")}</Label>
@@ -150,27 +231,37 @@ export function Router() {
         </div>
         <div className="space-y-2">
           <Label>{t("router.webSearch")}</Label>
-          <Combobox
-            options={modelOptions}
-            value={routerConfig.webSearch || ""}
-            onChange={(value) => handleRouterChange("webSearch", value)}
-            placeholder={t("router.selectModel")}
-            searchPlaceholder={t("router.searchModel")}
-            emptyPlaceholder={t("router.noModelFound")}
-          />
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <Combobox
+                options={modelOptions}
+                value={parseRouterValue(routerConfig.webSearch || "").model}
+                onChange={(value) => handleModelSelect("webSearch", value)}
+                placeholder={t("router.selectModel")}
+                searchPlaceholder={t("router.searchModel")}
+                emptyPlaceholder={t("router.noModelFound")}
+              />
+            </div>
+            {renderReasoningSelect("webSearch", routerConfig.webSearch || "")}
+          </div>
         </div>
         <div className="space-y-2">
           <div className="flex items-center gap-4">
             <div className="flex-1">
               <Label>{t("router.image")} (beta)</Label>
-              <Combobox
-                options={modelOptions}
-                value={routerConfig.image || ""}
-                onChange={(value) => handleRouterChange("image", value)}
-                placeholder={t("router.selectModel")}
-                searchPlaceholder={t("router.searchModel")}
-                emptyPlaceholder={t("router.noModelFound")}
-              />
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <Combobox
+                    options={modelOptions}
+                    value={parseRouterValue(routerConfig.image || "").model}
+                    onChange={(value) => handleModelSelect("image", value)}
+                    placeholder={t("router.selectModel")}
+                    searchPlaceholder={t("router.searchModel")}
+                    emptyPlaceholder={t("router.noModelFound")}
+                  />
+                </div>
+                {renderReasoningSelect("image", routerConfig.image || "")}
+              </div>
             </div>
             <div className="w-48">
               <Label htmlFor="forceUseImageAgent">{t("router.forceUseImageAgent")}</Label>

@@ -62,6 +62,14 @@ async function handleTransformerEndpoint(
       }
     );
 
+    // Inject router reasoning level if set and client didn't already specify one
+    if ((req as any).routerReasoningLevel && !requestBody.reasoning?.effort) {
+      requestBody.reasoning = {
+        ...requestBody.reasoning,
+        effort: (req as any).routerReasoningLevel,
+      };
+    }
+
     // Send request to LLM provider
     const response = await sendRequestToProvider(
       requestBody,
