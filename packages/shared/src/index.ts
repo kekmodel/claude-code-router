@@ -10,3 +10,11 @@ export * from './preset/readPreset';
 export * from './preset/schema';
 export * from './preset/marketplace';
 
+// Export auth-related functionality
+export * from './auth/types';
+export * from './auth/tokenStore';
+export * from './auth/oauth/deviceCode';
+export * from './auth/oauth/authorizationCode';
+export * from './auth/oauth/tokenRefresh';
+export * from './auth/providers';
+

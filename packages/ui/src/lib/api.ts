@@ -1,4 +1,4 @@
-import type { Config, Provider, Transformer } from '@/types';
+import type { Config, Provider, Transformer, OAuthProviderInfo, OAuthLoginResponse } from '@/types';
 
 // 日志聚合响应类型
 interface GroupedLogsResponse {
@@ -322,6 +322,28 @@ class ApiClient {
   // Install preset from GitHub repository
   async installPresetFromGitHub(repo: string, name?: string): Promise<any> {
     return this.post<any>('/presets/install/github', { repo, name });
+  }
+
+  // ========== OAuth API methods ==========
+
+  // Get OAuth providers with status
+  async getAuthProviders(): Promise<{ providers: OAuthProviderInfo[] }> {
+    return this.get<{ providers: OAuthProviderInfo[] }>('/auth/providers');
+  }
+
+  // Start OAuth login for a provider
+  async startAuthLogin(provider: string): Promise<OAuthLoginResponse> {
+    return this.post<OAuthLoginResponse>(`/auth/login/${encodeURIComponent(provider)}`, {});
+  }
+
+  // Logout from an OAuth provider
+  async authLogout(provider: string): Promise<{ success: boolean; message: string }> {
+    return this.post<{ success: boolean; message: string }>(`/auth/logout/${encodeURIComponent(provider)}`, {});
+  }
+
+  // Get auth status for a specific provider
+  async getAuthStatus(provider: string): Promise<{ provider: string; status: string; type?: string; expiresAt?: number }> {
+    return this.get<{ provider: string; status: string; type?: string; expiresAt?: number }>(`/auth/status/${encodeURIComponent(provider)}`);
   }
 }
 

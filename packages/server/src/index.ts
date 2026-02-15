@@ -5,7 +5,7 @@ import { join } from "path";
 import { initConfig, initDir } from "./utils";
 import { createServer } from "./server";
 import { apiKeyAuth } from "./middleware/auth";
-import { CONFIG_FILE, HOME_DIR, listPresets } from "@CCR/shared";
+import { CONFIG_FILE, HOME_DIR, listPresets, getCopilotAccessToken, getAnthropicAccessToken, getAntigravityAccessToken } from "@CCR/shared";
 import { createStream } from 'rotating-file-stream';
 import { sessionUsageCache } from "@musistudio/llms";
 import { SSEParserTransform } from "./utils/SSEParser.transform";
@@ -86,6 +86,33 @@ async function registerPluginsFromConfig(serverInstance: any, config: any): Prom
     }
   // Enable all registered plugins
   await pluginManager.enablePlugins(serverInstance);
+}
+
+// OAuth token resolver registry: maps oauth_provider name to getApiKey function
+const oauthTokenResolvers: Record<string, () => Promise<string>> = {
+  copilot: getCopilotAccessToken,
+  anthropic: getAnthropicAccessToken,
+  antigravity: getAntigravityAccessToken,
+};
+
+/**
+ * Wire up getApiKey functions for OAuth-authenticated providers
+ */
+function wireOAuthProviders(serverInstance: any) {
+  const providers = serverInstance.providerService?.getProviders() || [];
+  for (const provider of providers) {
+    if (provider.authType === 'oauth' && provider.oauthProvider) {
+      const resolver = oauthTokenResolvers[provider.oauthProvider];
+      if (resolver) {
+        provider.getApiKey = resolver;
+      } else {
+        const available = Object.keys(oauthTokenResolvers).join(', ');
+        console.error(
+          `OAuth provider '${provider.oauthProvider}' not found for provider '${provider.name}'. Available: ${available}`
+        );
+      }
+    }
+  }
 }
 
 async function getServer(options: RunOptions = {}) {
@@ -181,6 +208,9 @@ async function getServer(options: RunOptions = {}) {
     },
     logger: loggerConfig,
   });
+
+  // Wire up OAuth token resolvers for providers with auth_type: 'oauth'
+  wireOAuthProviders(serverInstance);
 
   await Promise.allSettled(
       presets.map(async preset => await serverInstance.registerNamespace(`/preset/${preset.name}`, preset.config))

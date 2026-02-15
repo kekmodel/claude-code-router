@@ -18,6 +18,7 @@ import { join } from "path";
 import { parseStatusLineData, StatusLineInput } from "./utils/statusline";
 import {handlePresetCommand} from "./utils/preset";
 import { handleInstallCommand } from "./utils/installCommand";
+import { handleAuthCommand } from "./utils/authCommand";
 
 
 const command = process.argv[2];
@@ -33,6 +34,7 @@ const KNOWN_COMMANDS = [
   "model",
   "preset",
   "install",
+  "auth",
   "activate",
   "env",
   "ui",
@@ -55,6 +57,7 @@ Commands:
   model         Interactive model selection and configuration
   preset        Manage presets (export, install, list, delete)
   install       Install preset from GitHub marketplace
+  auth          Manage OAuth authentication (login, logout, list, status)
   activate      Output environment variables for shell integration
   ui            Open the web UI in browser
   -v, version   Show version information
@@ -271,6 +274,9 @@ async function main() {
     case "install":
       const presetName = process.argv[3];
       await handleInstallCommand(presetName);
+      break;
+    case "auth":
+      await handleAuthCommand(process.argv.slice(3));
       break;
     case "activate":
     case "env":

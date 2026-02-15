@@ -21,6 +21,14 @@ import {
   type PresetFile,
   type ManifestFile,
   type PresetMetadata,
+  listTokens,
+  deleteToken,
+  getToken,
+  isTokenExpired,
+  getAvailableOAuthProviders,
+  startCopilotLogin,
+  startAnthropicLogin,
+  startAntigravityLogin,
 } from "@CCR/shared";
 import fastifyMultipart from "@fastify/multipart";
 import AdmZip from "adm-zip";
@@ -459,6 +467,128 @@ export const createServer = async (config: any): Promise<any> => {
     } catch (error: any) {
       console.error("Failed to install preset from GitHub:", error);
       reply.status(500).send({ error: error.message || "Failed to install preset from GitHub" });
+    }
+  });
+
+  // ========== OAuth API endpoints ==========
+
+  // List OAuth providers and their auth status
+  app.get("/api/auth/providers", async (req: any, reply: any) => {
+    try {
+      const availableProviders = getAvailableOAuthProviders();
+      const tokens = await listTokens();
+      const tokenMap = new Map(tokens.map(t => [t.provider, t.token]));
+
+      const providers = availableProviders.map(name => {
+        const token = tokenMap.get(name);
+        let status: 'not_authenticated' | 'active' | 'expired' = 'not_authenticated';
+        let expiresAt: number | null = null;
+
+        if (token) {
+          if (token.type === 'api') {
+            status = 'active';
+          } else {
+            status = isTokenExpired(token) ? 'expired' : 'active';
+            expiresAt = token.expires;
+          }
+        }
+
+        return { name, status, expiresAt };
+      });
+
+      return { providers };
+    } catch (error: any) {
+      console.error("Failed to get auth providers:", error);
+      reply.status(500).send({ error: error.message || "Failed to get auth providers" });
+    }
+  });
+
+  // Start OAuth login for a provider
+  app.post("/api/auth/login/:provider", async (req: any, reply: any) => {
+    try {
+      const { provider } = req.params;
+
+      switch (provider) {
+        case "copilot": {
+          const { userCode, verificationUri, waitForAuth } = await startCopilotLogin();
+          // Don't await — let the client poll for status
+          waitForAuth().catch(err => console.error("Copilot auth error:", err.message));
+          return {
+            flow: "device_code",
+            userCode,
+            verificationUri,
+            message: "Visit the URL and enter the code to authenticate.",
+          };
+        }
+        case "anthropic": {
+          const { authUrl, waitForAuth } = await startAnthropicLogin();
+          waitForAuth().catch(err => console.error("Anthropic auth error:", err.message));
+          return {
+            flow: "authorization_code",
+            authUrl,
+            message: "Visit the URL to authenticate with Anthropic.",
+          };
+        }
+        case "antigravity": {
+          const { authUrl, waitForAuth } = await startAntigravityLogin();
+          waitForAuth().catch(err => console.error("Antigravity auth error:", err.message));
+          return {
+            flow: "authorization_code",
+            authUrl,
+            message: "Visit the URL to authenticate with Google for Antigravity.",
+          };
+        }
+        default:
+          reply.status(400).send({
+            error: `Unknown OAuth provider: ${provider}`,
+            available: getAvailableOAuthProviders(),
+          });
+          return;
+      }
+    } catch (error: any) {
+      console.error("Failed to start OAuth login:", error);
+      reply.status(500).send({ error: error.message || "Failed to start OAuth login" });
+    }
+  });
+
+  // Logout from an OAuth provider
+  app.post("/api/auth/logout/:provider", async (req: any, reply: any) => {
+    try {
+      const { provider } = req.params;
+      const deleted = await deleteToken(provider);
+      if (deleted) {
+        return { success: true, message: `Logged out from ${provider}` };
+      }
+      reply.status(404).send({ error: `No authentication found for ${provider}` });
+    } catch (error: any) {
+      console.error("Failed to logout:", error);
+      reply.status(500).send({ error: error.message || "Failed to logout" });
+    }
+  });
+
+  // Get auth status for a specific provider
+  app.get("/api/auth/status/:provider", async (req: any, reply: any) => {
+    try {
+      const { provider } = req.params;
+      const token = await getToken(provider);
+
+      if (!token) {
+        return { provider, status: 'not_authenticated' };
+      }
+
+      if (token.type === 'api') {
+        return { provider, status: 'active', type: 'api' };
+      }
+
+      return {
+        provider,
+        status: isTokenExpired(token) ? 'expired' : 'active',
+        type: 'oauth',
+        expiresAt: token.expires,
+      };
+    } catch (error: any) {
+      console.error("Failed to get auth status:", error);
+      reply.status(500).send({ error: error.message || "Failed to get auth status" });
     }
   });
 

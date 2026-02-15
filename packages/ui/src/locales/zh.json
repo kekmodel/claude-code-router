@@ -29,6 +29,7 @@
     "json_editor": "JSON 编辑器",
     "log_viewer": "日志查看器",
     "presets": "预设",
+    "oauth": "OAuth 认证",
     "language": "语言",
     "check_updates": "检查更新"
   },
@@ -297,5 +298,38 @@
       "apply": "应用",
       "cancel": "取消"
     }
+  },
+  "oauth": {
+    "title": "OAuth 认证",
+    "load_failed": "加载 OAuth 提供商失败",
+    "no_providers": "暂无可用的 OAuth 提供商",
+    "no_providers_hint": "配置 OAuth 提供商后将在此处显示",
+    "status_active": "已认证",
+    "status_expired": "已过期",
+    "status_not_authenticated": "未认证",
+    "expired": "已过期",
+    "expires_in_days": "{{days}} 天后过期",
+    "expires_in_hours": "{{hours}} 小时 {{minutes}} 分钟后过期",
+    "expires_in_minutes": "{{minutes}} 分钟后过期",
+    "copilot_description": "通过 Device Code Flow 认证 GitHub Copilot",
+    "anthropic_description": "通过 OAuth (Auth Code + PKCE) 认证 Anthropic Claude",
+    "antigravity_description": "通过 Google OAuth 认证 Antigravity",
+    "login": "登录",
+    "logout": "退出",
+    "logging_in": "登录中...",
+    "login_failed": "登录失败：{{error}}",
+    "logout_success": "已成功退出 {{provider}}",
+    "logout_failed": "退出失败：{{error}}",
+    "login_dialog_title": "登录 {{provider}}",
+    "enter_code": "请在验证页面输入此代码：",
+    "open_verification_page": "打开验证页面",
+    "browser_auth_hint": "点击下方链接在浏览器中进行认证。",
+    "open_auth_page": "打开认证页面",
+    "waiting_for_callback": "等待认证回调...",
+    "copy_failed": "复制代码失败",
+    "close": "关闭",
+    "cancel": "取消",
+    "logout_dialog_title": "确认退出",
+    "logout_dialog_description": "您确定要退出 {{provider}} 吗？退出后需要重新认证才能使用该提供商。"
   }
 }

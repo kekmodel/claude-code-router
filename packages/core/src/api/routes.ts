@@ -333,9 +333,14 @@ async function sendRequestToProvider(
   }
 
   // Send HTTP request
+  // Resolve token: use dynamic resolver (OAuth) if available, otherwise static apiKey
+  const resolvedToken = provider.getApiKey
+    ? await provider.getApiKey()
+    : provider.apiKey;
+
   // Prepare headers
   const requestHeaders: Record<string, string> = {
-    Authorization: `Bearer ${provider.apiKey}`,
+    Authorization: `Bearer ${resolvedToken}`,
     ...(config?.headers || {}),
   };
 
@@ -511,7 +516,7 @@ export const registerApiRoutes = async (
       reply: FastifyReply
     ) => {
       // Validation
-      const { name, baseUrl, apiKey, models } = request.body;
+      const { name, baseUrl, apiKey, models, authType } = request.body;
 
       if (!name?.trim()) {
         throw createApiError(
@@ -529,7 +534,8 @@ export const registerApiRoutes = async (
         );
       }
 
-      if (!apiKey?.trim()) {
+      // API key is required unless auth type is OAuth
+      if (!apiKey?.trim() && authType !== 'oauth') {
         throw createApiError("API key is required", 400, "invalid_request");
       }
 

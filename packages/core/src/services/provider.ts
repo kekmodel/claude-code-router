@@ -29,11 +29,19 @@ export class ProviderService {
   private initializeFromProvidersArray(providersConfig: ConfigProvider[]) {
     providersConfig.forEach((providerConfig: ConfigProvider) => {
       try {
+        // Require name and base URL for all providers
+        // For auth: require either api_key OR auth_type: 'oauth'
         if (
           !providerConfig.name ||
           !providerConfig.api_base_url ||
-          !providerConfig.api_key
+          (!providerConfig.api_key && providerConfig.auth_type !== 'oauth')
         ) {
+          return;
+        }
+
+        // Validate OAuth configuration
+        if (providerConfig.auth_type === 'oauth' && !providerConfig.oauth_provider) {
+          this.logger.error(`Provider ${providerConfig.name}: auth_type is 'oauth' but oauth_provider is not specified`);
           return;
         }
 
@@ -86,8 +94,10 @@ export class ProviderService {
         this.registerProvider({
           name: providerConfig.name,
           baseUrl: providerConfig.api_base_url,
-          apiKey: providerConfig.api_key,
+          apiKey: providerConfig.api_key || '',
           models: providerConfig.models || [],
+          authType: providerConfig.auth_type,
+          oauthProvider: providerConfig.oauth_provider,
           transformer: providerConfig.transformer ? transformer : undefined,
         });
 

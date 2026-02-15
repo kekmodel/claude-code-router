@@ -94,11 +94,16 @@ export interface RequiredInput {
   dependsOn?: string[];          // Explicitly declare dependent fields (for optimizing update order)
 }
 
+// Auth type
+export type AuthType = 'apikey' | 'oauth';
+
 // Provider configuration
 export interface ProviderConfig {
   name: string;
   api_base_url: string;
-  api_key: string;
+  api_key?: string;
+  auth_type?: AuthType;
+  oauth_provider?: string;
   models: string[];
   transformer?: any;
   [key: string]: any;

@@ -29,6 +29,7 @@
     "json_editor": "JSON Editor",
     "log_viewer": "Log Viewer",
     "presets": "Presets",
+    "oauth": "OAuth",
     "language": "Language",
     "check_updates": "Check for Updates"
   },
@@ -298,5 +299,38 @@
       "apply": "Apply",
       "cancel": "Cancel"
     }
+  },
+  "oauth": {
+    "title": "OAuth Authentication",
+    "load_failed": "Failed to load OAuth providers",
+    "no_providers": "No OAuth providers available",
+    "no_providers_hint": "OAuth providers will appear here when configured",
+    "status_active": "Active",
+    "status_expired": "Expired",
+    "status_not_authenticated": "Not Authenticated",
+    "expired": "Expired",
+    "expires_in_days": "Expires in {{days}} days",
+    "expires_in_hours": "Expires in {{hours}}h {{minutes}}m",
+    "expires_in_minutes": "Expires in {{minutes}} minutes",
+    "copilot_description": "GitHub Copilot via Device Code Flow",
+    "anthropic_description": "Anthropic Claude via OAuth (Auth Code + PKCE)",
+    "antigravity_description": "Antigravity via Google OAuth",
+    "login": "Login",
+    "logout": "Logout",
+    "logging_in": "Logging in...",
+    "login_failed": "Login failed: {{error}}",
+    "logout_success": "Successfully logged out from {{provider}}",
+    "logout_failed": "Logout failed: {{error}}",
+    "login_dialog_title": "Login to {{provider}}",
+    "enter_code": "Enter this code on the verification page:",
+    "open_verification_page": "Open Verification Page",
+    "browser_auth_hint": "Click the link below to authenticate in your browser.",
+    "open_auth_page": "Open Authentication Page",
+    "waiting_for_callback": "Waiting for authentication callback...",
+    "copy_failed": "Failed to copy code",
+    "close": "Close",
+    "cancel": "Cancel",
+    "logout_dialog_title": "Confirm Logout",
+    "logout_dialog_description": "Are you sure you want to logout from {{provider}}? You will need to re-authenticate to use this provider."
   }
 }

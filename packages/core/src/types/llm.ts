@@ -197,11 +197,16 @@ export interface ConversionOptions {
   sourceProvider: "openai" | "anthropic";
 }
 
+export type AuthType = 'apikey' | 'oauth';
+
 export interface LLMProvider {
   name: string;
   baseUrl: string;
   apiKey: string;
   models: string[];
+  authType?: AuthType;
+  oauthProvider?: string;
+  getApiKey?: () => Promise<string>;
   transformer?: {
     [key: string]: {
       use?: Transformer[];
@@ -228,7 +233,9 @@ export interface RequestRouteInfo {
 export interface ConfigProvider {
   name: string;
   api_base_url: string;
-  api_key: string;
+  api_key?: string;
+  auth_type?: AuthType;
+  oauth_provider?: string;
   models: string[];
   transformer: {
     use?: string[] | Array<any>[];

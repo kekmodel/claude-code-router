@@ -68,3 +68,20 @@ export interface Config {
 }
 
 export type AccessLevel = 'restricted' | 'full';
+
+// OAuth types
+export type OAuthStatus = 'not_authenticated' | 'active' | 'expired';
+
+export interface OAuthProviderInfo {
+  name: string;
+  status: OAuthStatus;
+  expiresAt: number | null;
+}
+
+export interface OAuthLoginResponse {
+  flow: 'device_code' | 'authorization_code';
+  authUrl?: string;
+  userCode?: string;
+  verificationUri?: string;
+  message: string;
+}

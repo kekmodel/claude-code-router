@@ -3,6 +3,7 @@ import App from './App';
 import { Login } from '@/components/Login';
 import { DebugPage } from '@/components/DebugPage';
 import { Presets } from '@/components/Presets';
+import { OAuthManagement } from '@/components/OAuthManagement';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import PublicRoute from '@/components/PublicRoute';
 
@@ -22,6 +23,10 @@ export const router = createMemoryRouter([
   {
     path: '/presets',
     element: <ProtectedRoute><Presets /></ProtectedRoute>,
+  },
+  {
+    path: '/oauth',
+    element: <ProtectedRoute><OAuthManagement /></ProtectedRoute>,
   },
   {
     path: '/debug',
