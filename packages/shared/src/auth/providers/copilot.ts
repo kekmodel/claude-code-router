@@ -12,7 +12,7 @@ import { getToken, saveToken } from "../tokenStore";
 export const COPILOT_OAUTH_CONFIG: OAuthProviderConfig = {
   name: "copilot",
   clientId: "Iv1.b507a08c87ecfe98", // VS Code Copilot client ID
-  scopes: [],
+  scopes: ["read:user"],
   deviceCodeUrl: "https://github.com/login/device/code",
   tokenUrl: "https://github.com/login/oauth/access_token",
 };

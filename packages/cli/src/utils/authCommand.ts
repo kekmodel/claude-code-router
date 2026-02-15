@@ -4,10 +4,9 @@
 
 import {
   startCopilotLogin,
-  startAnthropicLogin,
-  startAntigravityLogin,
   startCodexLogin,
   startGeminiLogin,
+  startAntigravityLogin,
   listTokens,
   deleteToken,
   getToken,
@@ -27,14 +26,15 @@ Commands:
 
 Available OAuth providers:
   copilot             GitHub Copilot (Device Code Flow)
-  anthropic           Anthropic Claude (Auth Code + PKCE)
-  antigravity         Antigravity via Google OAuth
   codex               OpenAI Codex (Auth Code + PKCE)
   gemini              Google Gemini (Google OAuth)
+  antigravity         Antigravity (Google OAuth, Gemini + Claude models)
 
 Examples:
   ccr auth login copilot
-  ccr auth login anthropic
+  ccr auth login codex
+  ccr auth login gemini
+  ccr auth login antigravity
   ccr auth logout copilot
   ccr auth list
   ccr auth status
@@ -89,17 +89,14 @@ async function handleLogin(provider: string): Promise<void> {
     case "copilot":
       await loginCopilot();
       break;
-    case "anthropic":
-      await loginAnthropicClaude();
-      break;
-    case "antigravity":
-      await loginAntigravity();
-      break;
     case "codex":
       await loginCodex();
       break;
     case "gemini":
       await loginGemini();
+      break;
+    case "antigravity":
+      await loginAntigravity();
       break;
     default:
       console.error(`Unknown OAuth provider: ${provider}`);
@@ -138,78 +135,6 @@ async function loginCopilot(): Promise<void> {
     "auth_type": "oauth",
     "oauth_provider": "copilot",
     "models": ["gpt-4o", "claude-sonnet-4-5"]
-  }
-`);
-  } catch (error: any) {
-    console.error("Authentication failed:", error.message);
-    process.exit(1);
-  }
-}
-
-/**
- * Anthropic Claude login via Authorization Code + PKCE
- */
-async function loginAnthropicClaude(): Promise<void> {
-  console.log("Authenticating with Anthropic Claude...\n");
-  console.log("WARNING: Anthropic may restrict third-party OAuth access.");
-  console.log("This feature may stop working if Anthropic changes their ToS.\n");
-
-  try {
-    const { authUrl, waitForAuth } = await startAnthropicLogin();
-
-    console.log("Opening browser for authentication...\n");
-    openBrowser(authUrl);
-    console.log("If the browser didn't open, visit:");
-    console.log(`  ${authUrl}\n`);
-    console.log("Waiting for authorization...");
-
-    const token = await waitForAuth();
-
-    console.log("\nAuthentication successful!");
-    console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
-    console.log("\nYou can now use Anthropic Claude with OAuth in your config:");
-    console.log(`
-  {
-    "name": "anthropic-oauth",
-    "api_base_url": "https://api.anthropic.com",
-    "auth_type": "oauth",
-    "oauth_provider": "anthropic",
-    "models": ["claude-sonnet-4-5-20250929"]
-  }
-`);
-  } catch (error: any) {
-    console.error("Authentication failed:", error.message);
-    process.exit(1);
-  }
-}
-
-/**
- * Antigravity login via Google OAuth
- */
-async function loginAntigravity(): Promise<void> {
-  console.log("Authenticating with Antigravity via Google...\n");
-
-  try {
-    const { authUrl, waitForAuth } = await startAntigravityLogin();
-
-    console.log("Opening browser for Google authentication...\n");
-    openBrowser(authUrl);
-    console.log("If the browser didn't open, visit:");
-    console.log(`  ${authUrl}\n`);
-    console.log("Waiting for authorization...");
-
-    const token = await waitForAuth();
-
-    console.log("\nAuthentication successful!");
-    console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
-    console.log("\nYou can now use Antigravity models in your config:");
-    console.log(`
-  {
-    "name": "antigravity",
-    "api_base_url": "https://antigravity.tools/api/v1",
-    "auth_type": "oauth",
-    "oauth_provider": "antigravity",
-    "models": ["claude-sonnet-4-5", "gemini-2.5-pro"]
   }
 `);
   } catch (error: any) {
@@ -281,6 +206,44 @@ async function loginGemini(): Promise<void> {
     "auth_type": "oauth",
     "oauth_provider": "gemini",
     "models": ["gemini-2.5-pro", "gemini-2.5-flash"]
+  }
+`);
+  } catch (error: any) {
+    console.error("Authentication failed:", error.message);
+    process.exit(1);
+  }
+}
+
+/**
+ * Antigravity login via Google OAuth
+ * Provides access to both Gemini and Claude models via Cloud Code Assist.
+ */
+async function loginAntigravity(): Promise<void> {
+  console.log("Authenticating with Antigravity...\n");
+  console.log("Antigravity provides access to both Gemini and Claude models.\n");
+
+  try {
+    const { authUrl, waitForAuth } = await startAntigravityLogin();
+
+    console.log("Opening browser for Google authentication...\n");
+    openBrowser(authUrl);
+    console.log("If the browser didn't open, visit:");
+    console.log(`  ${authUrl}\n`);
+    console.log("Waiting for authorization...");
+
+    const token = await waitForAuth();
+
+    console.log("\nAuthentication successful!");
+    console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
+    console.log("\nYou can now use Antigravity models in your config:");
+    console.log(`
+  {
+    "name": "antigravity",
+    "api_base_url": "https://daily-cloudcode-pa.sandbox.googleapis.com",
+    "auth_type": "oauth",
+    "oauth_provider": "antigravity",
+    "models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro", "gemini-3-flash",
+               "claude-sonnet-4-5", "claude-sonnet-4-5-thinking", "claude-opus-4-6-thinking"]
   }
 `);
   } catch (error: any) {

@@ -27,6 +27,7 @@ export const GEMINI_OAUTH_CONFIG: OAuthProviderConfig = {
   tokenUrl: "https://oauth2.googleapis.com/token",
   callbackPort: 8088,
   callbackPath: "/oauth2callback",
+  callbackHost: "127.0.0.1",
   extraParams: {
     access_type: "offline",
     prompt: "consent",

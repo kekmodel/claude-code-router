@@ -12,14 +12,14 @@ import { generatePKCE, startAuthCodeFlow, exchangeCodeForToken } from "../oauth/
 import { getToken, saveToken } from "../tokenStore";
 import { refreshAccessToken } from "../oauth/tokenRefresh";
 
-// Anthropic OAuth configuration
+// Anthropic OAuth configuration (from Claude Code CLI)
 export const ANTHROPIC_OAUTH_CONFIG: OAuthProviderConfig = {
   name: "anthropic",
-  clientId: "b6f12838-e197-4348-9071-a6bf7babc315",
-  scopes: ["user:inference"],
-  authorizationUrl: "https://auth.anthropic.com/oauth/authorize",
-  tokenUrl: "https://auth.anthropic.com/oauth/token",
-  callbackPort: 8086,
+  clientId: "claude-code-cli",
+  scopes: ["anthropic.claude"],
+  authorizationUrl: "https://auth.anthropic.com/oauth2/auth",
+  tokenUrl: "https://auth.anthropic.com/oauth2/token",
+  callbackPort: 3000,
 };
 
 // Default Anthropic API base URL

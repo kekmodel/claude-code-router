@@ -7,6 +7,10 @@ import { createServer, type Server } from "node:http";
 import { randomBytes, createHash } from "node:crypto";
 import type { OAuthProviderConfig, OAuthTokenResponse, PKCEPair } from "../types";
 
+// Track active callback servers per provider to prevent port conflicts
+// when login is triggered multiple times (e.g., from the UI)
+const activeServers = new Map<string, Server>();
+
 /**
  * Generate PKCE code verifier and code challenge
  */
@@ -37,7 +41,15 @@ export function startAuthCodeFlow(
 
   const port = config.callbackPort || 8085;
   const callbackPath = config.callbackPath || "/callback";
-  const redirectUri = `http://127.0.0.1:${port}${callbackPath}`;
+  const host = config.callbackHost || "localhost";
+  const redirectUri = `http://${host}:${port}${callbackPath}`;
+
+  // Close any existing callback server for this provider to avoid port conflicts
+  const existingServer = activeServers.get(config.name);
+  if (existingServer) {
+    try { existingServer.close(); } catch {}
+    activeServers.delete(config.name);
+  }
 
   // Build authorization URL
   const params = new URLSearchParams({
@@ -102,12 +114,14 @@ export function startAuthCodeFlow(
   });
 
   server.listen(port);
+  activeServers.set(config.name, server);
 
   const waitForCallback = async (): Promise<string> => {
     try {
       return await callbackPromise;
     } finally {
       server.close();
+      activeServers.delete(config.name);
     }
   };
 
@@ -125,7 +139,8 @@ export async function exchangeCodeForToken(
 ): Promise<OAuthTokenResponse> {
   const port = config.callbackPort || 8085;
   const callbackPath = config.callbackPath || "/callback";
-  const callbackUri = redirectUri || `http://127.0.0.1:${port}${callbackPath}`;
+  const host = config.callbackHost || "localhost";
+  const callbackUri = redirectUri || `http://${host}:${port}${callbackPath}`;
 
   const params = new URLSearchParams({
     client_id: config.clientId,

@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ArrowLeft, Loader2, LogIn, LogOut, KeyRound, ExternalLink, Copy, Check } from "lucide-react";
+import { ArrowLeft, Loader2, LogIn, LogOut, KeyRound, ExternalLink, Copy, Check, List } from "lucide-react";
 import { Toast } from "@/components/ui/toast";
 import type { OAuthProviderInfo, OAuthLoginResponse } from "@/types";
 
@@ -34,6 +34,12 @@ export function OAuthManagement() {
   // Logout confirmation dialog state
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [logoutProvider, setLogoutProvider] = useState<string | null>(null);
+
+  // Models dialog state
+  const [modelsDialogOpen, setModelsDialogOpen] = useState(false);
+  const [modelsProvider, setModelsProvider] = useState<string | null>(null);
+  const [models, setModels] = useState<Array<{ id: string; name?: string; reasoningLevels?: string[]; defaultReasoningLevel?: string; plans?: string[] }>>([]);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
 
   const handleGoBack = () => {
     navigate('/dashboard');
@@ -105,6 +111,22 @@ export function OAuthManagement() {
     }
   };
 
+  // Fetch available models for a provider
+  const handleFetchModels = async (providerName: string) => {
+    try {
+      setIsFetchingModels(true);
+      setModelsProvider(providerName);
+      const response = await api.fetchAuthModels(providerName);
+      setModels(response.models || []);
+      setModelsDialogOpen(true);
+    } catch (error: any) {
+      console.error('Failed to fetch models:', error);
+      setToast({ message: t('oauth.fetch_models_failed', { error: error.message }), type: 'error' });
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
+
   // Close login dialog and refresh
   const handleLoginDialogClose = () => {
     setLoginDialogOpen(false);
@@ -151,14 +173,12 @@ export function OAuthManagement() {
     switch (name) {
       case 'copilot':
         return { displayName: 'GitHub Copilot', description: t('oauth.copilot_description') };
-      case 'anthropic':
-        return { displayName: 'Anthropic Claude', description: t('oauth.anthropic_description') };
-      case 'antigravity':
-        return { displayName: 'Antigravity', description: t('oauth.antigravity_description') };
       case 'codex':
         return { displayName: 'OpenAI Codex', description: t('oauth.codex_description') };
       case 'gemini':
         return { displayName: 'Google Gemini', description: t('oauth.gemini_description') };
+      case 'antigravity':
+        return { displayName: 'Antigravity', description: t('oauth.antigravity_description') };
       default:
         return { displayName: name, description: '' };
     }
@@ -214,14 +234,29 @@ export function OAuthManagement() {
                   </div>
                   <div className="flex items-center gap-2">
                     {provider.status === 'active' ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleLogoutConfirm(provider.name)}
-                      >
-                        <LogOut className="mr-2 h-4 w-4" />
-                        {t('oauth.logout')}
-                      </Button>
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleFetchModels(provider.name)}
+                          disabled={isFetchingModels && modelsProvider === provider.name}
+                        >
+                          {isFetchingModels && modelsProvider === provider.name ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <List className="mr-2 h-4 w-4" />
+                          )}
+                          {t('oauth.fetch_models')}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleLogoutConfirm(provider.name)}
+                        >
+                          <LogOut className="mr-2 h-4 w-4" />
+                          {t('oauth.logout')}
+                        </Button>
+                      </>
                     ) : (
                       <Button
                         size="sm"
@@ -338,6 +373,58 @@ export function OAuthManagement() {
             </Button>
             <Button variant="destructive" onClick={handleLogout}>
               {t('oauth.logout')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Models Dialog */}
+      <Dialog open={modelsDialogOpen} onOpenChange={setModelsDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>
+              {t('oauth.models_dialog_title', { provider: modelsProvider ? getProviderInfo(modelsProvider).displayName : '' })}
+            </DialogTitle>
+            <DialogDescription>
+              {t('oauth.models_dialog_description', { count: models.length })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-y-auto max-h-[50vh] space-y-1 py-2">
+            {models.map((model) => (
+              <div
+                key={model.id}
+                className="px-3 py-2 border rounded text-sm hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <code className="font-mono text-xs">{model.id}</code>
+                  {model.name && model.name !== model.id && (
+                    <span className="text-gray-500 text-xs ml-2 truncate max-w-[200px]">{model.name}</span>
+                  )}
+                </div>
+                {(model.reasoningLevels || model.plans) && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {model.reasoningLevels?.map((level) => (
+                      <Badge
+                        key={level}
+                        variant={level === model.defaultReasoningLevel ? "default" : "outline"}
+                        className="text-[10px] px-1.5 py-0"
+                      >
+                        {level}
+                      </Badge>
+                    ))}
+                    {model.plans && !model.plans.includes("free") && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-700">
+                        paid
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModelsDialogOpen(false)}>
+              {t('oauth.close')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,7 +1,12 @@
 /**
  * Antigravity OAuth provider
- * Uses Google OAuth to authenticate, then exchanges the Google token
- * for an Antigravity API token that provides access to Claude/Gemini models.
+ * Uses Google OAuth to authenticate with the Antigravity Cloud Code Assist proxy.
+ * Antigravity proxies both Gemini and Claude models via Google's Cloud Code endpoints.
+ *
+ * Credentials are from the opencode-antigravity-auth npm package.
+ * Per Google's docs: "the client secret is obviously not treated as a secret"
+ * for installed applications.
+ * See: https://developers.google.com/identity/protocols/oauth2#installed
  */
 
 import { randomBytes } from "node:crypto";
@@ -9,27 +14,86 @@ import type { OAuthProviderConfig, OAuthToken } from "../types";
 import { generatePKCE, startAuthCodeFlow, exchangeCodeForToken } from "../oauth/authorizationCode";
 import { getToken, saveToken } from "../tokenStore";
 
-// Google OAuth configuration for Antigravity
+// Official Antigravity OAuth credentials (from opencode-antigravity-auth)
 export const ANTIGRAVITY_OAUTH_CONFIG: OAuthProviderConfig = {
   name: "antigravity",
-  clientId: "936733107187-4m7s50ke4hmqk29g28obkn72r20c195r.apps.googleusercontent.com",
-  scopes: ["openid", "email", "profile"],
+  clientId: "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com",
+  clientSecret: "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",
+  scopes: [
+    "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+    "https://www.googleapis.com/auth/cclog",
+    "https://www.googleapis.com/auth/experimentsandconfigs",
+  ],
   authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
   tokenUrl: "https://oauth2.googleapis.com/token",
-  callbackPort: 8087,
+  callbackPort: 51121,
+  callbackPath: "/oauth-callback",
+  callbackHost: "localhost",
   extraParams: {
     access_type: "offline",
     prompt: "consent",
   },
 };
 
-// Antigravity API endpoints
-const ANTIGRAVITY_TOKEN_URL = "https://antigravity.tools/api/auth/google";
-const ANTIGRAVITY_DEFAULT_BASE_URL = "https://antigravity.tools/api/v1";
+// Antigravity API endpoints (fallback order: daily → autopush → prod)
+const ANTIGRAVITY_ENDPOINT_DAILY = "https://daily-cloudcode-pa.sandbox.googleapis.com";
+const ANTIGRAVITY_ENDPOINT_AUTOPUSH = "https://autopush-cloudcode-pa.sandbox.googleapis.com";
+const ANTIGRAVITY_ENDPOINT_PROD = "https://cloudcode-pa.googleapis.com";
+const ANTIGRAVITY_LOAD_ENDPOINTS = [
+  ANTIGRAVITY_ENDPOINT_PROD,
+  ANTIGRAVITY_ENDPOINT_DAILY,
+  ANTIGRAVITY_ENDPOINT_AUTOPUSH,
+];
+const ANTIGRAVITY_DEFAULT_PROJECT_ID = "rising-fact-p41fc";
 
-export interface AntigravitySession {
-  token: string;
-  expires_at: number; // Unix timestamp in seconds
+/**
+ * Fetch the Antigravity project ID from the Cloud Code Assist API
+ */
+async function fetchProjectId(accessToken: string): Promise<string> {
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+    "User-Agent": "google-api-nodejs-client/9.15.1",
+    "Client-Metadata": JSON.stringify({
+      ideType: "ANTIGRAVITY",
+      platform: process.platform === "win32" ? "WINDOWS" : "MACOS",
+      pluginType: "GEMINI",
+    }),
+  };
+
+  for (const baseEndpoint of ANTIGRAVITY_LOAD_ENDPOINTS) {
+    try {
+      const url = `${baseEndpoint}/v1internal:loadCodeAssist`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          metadata: {
+            ideType: "ANTIGRAVITY",
+            platform: process.platform === "win32" ? "WINDOWS" : "MACOS",
+            pluginType: "GEMINI",
+          },
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) continue;
+
+      const data = await response.json() as any;
+      if (typeof data.cloudaicompanionProject === "string" && data.cloudaicompanionProject) {
+        return data.cloudaicompanionProject;
+      }
+      if (data.cloudaicompanionProject?.id) {
+        return data.cloudaicompanionProject.id;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return ANTIGRAVITY_DEFAULT_PROJECT_ID;
 }
 
 /**
@@ -54,21 +118,25 @@ export async function startAntigravityLogin(): Promise<{
       try {
         const code = await waitForCallback();
 
-        // Exchange code for Google tokens
-        const googleTokens = await exchangeCodeForToken(
+        const tokens = await exchangeCodeForToken(
           ANTIGRAVITY_OAUTH_CONFIG,
           code,
           pkce.codeVerifier
         );
 
-        // Exchange Google token for Antigravity session
-        const session = await getAntigravitySession(googleTokens.access_token);
+        // Fetch project ID from Cloud Code Assist API
+        const projectId = await fetchProjectId(tokens.access_token);
+
+        // Store refresh token with project ID in pipe-separated format
+        const storedRefresh = `${tokens.refresh_token || ""}|${projectId}`;
 
         const oauthToken: OAuthToken = {
           type: "oauth",
-          access: session.token,
-          refresh: googleTokens.refresh_token || googleTokens.access_token,
-          expires: session.expires_at * 1000, // Convert to milliseconds
+          access: tokens.access_token,
+          refresh: storedRefresh,
+          expires: tokens.expires_in
+            ? Date.now() + tokens.expires_in * 1000
+            : Date.now() + 3600 * 1000,
         };
 
         await saveToken("antigravity", oauthToken);
@@ -81,26 +149,11 @@ export async function startAntigravityLogin(): Promise<{
 }
 
 /**
- * Exchange a Google access token for an Antigravity session token
+ * Parse stored refresh string into its parts
  */
-async function getAntigravitySession(googleAccessToken: string): Promise<AntigravitySession> {
-  const response = await fetch(ANTIGRAVITY_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({
-      token: googleAccessToken,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to get Antigravity session: ${response.status} ${errorText}`);
-  }
-
-  return response.json() as Promise<AntigravitySession>;
+function parseRefreshParts(refresh: string): { refreshToken: string; projectId: string } {
+  const [refreshToken = "", projectId = ""] = (refresh || "").split("|");
+  return { refreshToken, projectId: projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID };
 }
 
 /**
@@ -119,41 +172,53 @@ export async function getAntigravityAccessToken(): Promise<string> {
     return token.access;
   }
 
-  // Token expired, try to refresh using stored Google refresh token
+  // Token expired, try to refresh
+  const { refreshToken, projectId } = parseRefreshParts(token.refresh);
+  if (!refreshToken) {
+    throw new Error(
+      "No refresh token available for Antigravity. Run `ccr auth login antigravity` again."
+    );
+  }
+
   try {
-    // First, try to refresh the Google token
-    const googleRefreshResponse = await fetch(ANTIGRAVITY_OAUTH_CONFIG.tokenUrl, {
+    const refreshResponse = await fetch(ANTIGRAVITY_OAUTH_CONFIG.tokenUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
       },
       body: new URLSearchParams({
         client_id: ANTIGRAVITY_OAUTH_CONFIG.clientId,
+        client_secret: ANTIGRAVITY_OAUTH_CONFIG.clientSecret!,
         grant_type: "refresh_token",
-        refresh_token: token.refresh,
-      }).toString(),
+        refresh_token: refreshToken,
+      }),
     });
 
-    if (!googleRefreshResponse.ok) {
-      throw new Error("Google token refresh failed");
+    if (!refreshResponse.ok) {
+      throw new Error(`Token refresh failed: ${refreshResponse.status}`);
     }
 
-    const googleTokens = await googleRefreshResponse.json() as { access_token: string; refresh_token?: string };
+    const newTokens = await refreshResponse.json() as {
+      access_token: string;
+      refresh_token?: string;
+      expires_in?: number;
+    };
 
-    // Exchange new Google token for Antigravity session
-    const session = await getAntigravitySession(googleTokens.access_token);
+    // Preserve project ID in the stored refresh string
+    const newRefresh = `${newTokens.refresh_token || refreshToken}|${projectId}`;
 
     const updatedToken: OAuthToken = {
       ...token,
-      access: session.token,
-      refresh: googleTokens.refresh_token || token.refresh,
-      expires: session.expires_at * 1000,
+      access: newTokens.access_token,
+      refresh: newRefresh,
+      expires: newTokens.expires_in
+        ? Date.now() + newTokens.expires_in * 1000
+        : Date.now() + 3600 * 1000,
     };
     await saveToken("antigravity", updatedToken);
-
     return updatedToken.access;
   } catch (error) {
+    console.error("Failed to refresh Antigravity token:", error);
     throw new Error(
       "Failed to refresh Antigravity token. Run `ccr auth login antigravity` again."
     );
@@ -161,8 +226,8 @@ export async function getAntigravityAccessToken(): Promise<string> {
 }
 
 /**
- * Get the default Antigravity API base URL
+ * Get the Antigravity API base URL (daily sandbox - same as CLIProxy)
  */
 export function getAntigravityBaseUrl(): string {
-  return ANTIGRAVITY_DEFAULT_BASE_URL;
+  return ANTIGRAVITY_ENDPOINT_DAILY;
 }

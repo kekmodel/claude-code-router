@@ -36,6 +36,7 @@ export interface OAuthProviderConfig {
   authorizationUrl?: string;   // For Authorization Code Flow
   callbackPort?: number;       // Local callback server port
   callbackPath?: string;       // Custom callback path (default: /callback)
+  callbackHost?: string;       // Callback host (default: "localhost", Google OAuth uses "127.0.0.1")
   extraHeaders?: Record<string, string>;
   extraParams?: Record<string, string>;
 }

@@ -4,32 +4,49 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Claude Code Router is a tool that routes Claude Code requests to different LLM providers. It uses a Monorepo architecture with four main packages:
+Claude Code Router is a tool that routes Claude Code requests to different LLM providers. It uses a Monorepo architecture with five main packages:
 
-- **cli** (`@musistudio/claude-code-router`): Command-line tool providing the `ccr` command
-- **server** (`@CCR/server`): Core server handling API routing and transformations
-- **shared** (`@CCR/shared`): Shared constants, utilities, and preset management
-- **ui** (`@CCR/ui`): Web management interface (React + Vite)
+- **cli** (`@CCR/cli`): Command-line tool providing the `ccr` command
+- **core** (`@musistudio/llms`): Universal LLM API transformation server (request/response transformations, provider adapters)
+- **server** (`@CCR/server`): Core server handling API routing and stream processing
+- **shared** (`@CCR/shared`): Shared constants, utilities, preset management, and OAuth authentication
+- **ui** (`@CCR/ui`): Web management interface (React + Vite + Tailwind CSS + Radix UI) — includes OAuth management page at `/oauth`
+
+Additional workspaces:
+- **docs** (`claude-code-router-docs`): Documentation site (Docusaurus)
 
 ## Build Commands
 
 ### Build all packages
 ```bash
-pnpm build
+pnpm build          # Builds in order: shared → core → server → cli → ui
 ```
+
+**Build order matters** — packages depend on each other. The root `build` script handles the correct sequence automatically.
 
 ### Build individual packages
 ```bash
-pnpm build:cli      # Build CLI
+pnpm build:shared   # Build Shared (must be first)
+pnpm build:core     # Build Core (@musistudio/llms)
 pnpm build:server   # Build Server
+pnpm build:cli      # Build CLI
 pnpm build:ui       # Build UI
+pnpm build:docs     # Build Documentation site
 ```
 
 ### Development mode
 ```bash
 pnpm dev:cli        # Develop CLI (ts-node)
 pnpm dev:server     # Develop Server (ts-node)
+pnpm dev:core       # Develop Core (nodemon)
 pnpm dev:ui         # Develop UI (Vite)
+pnpm dev:docs       # Develop Docs (Docusaurus)
+```
+
+### Lint
+```bash
+pnpm --filter @musistudio/llms lint   # Lint core
+pnpm --filter @CCR/ui lint            # Lint UI
 ```
 
 ### Publish
@@ -57,7 +74,7 @@ Token calculation uses `tiktoken` (cl100k_base) to estimate request size.
 
 ### 2. Transformer System
 
-The project uses the `@musistudio/llms` package (external dependency) to handle request/response transformations. Transformers adapt to different provider API differences:
+The `@musistudio/llms` package (`packages/core/`) handles request/response transformations. Transformers adapt to different provider API differences:
 
 - Built-in transformers: `anthropic`, `deepseek`, `gemini`, `openrouter`, `groq`, `maxtoken`, `tooluse`, `reasoning`, `enhancetool`, etc.
 - Custom transformers: Load external plugins via `transformers` array in `config.json`
@@ -91,7 +108,51 @@ The server uses custom Transform streams to handle Server-Sent Events:
 - `SSESerializerTransform`: Serializes event objects into SSE text stream
 - `rewriteStream`: Intercepts and modifies stream data (for agent tool calls)
 
-### 5. Configuration Management
+### 5. OAuth Authentication System (packages/shared/src/auth/)
+
+OAuth support allows providers to authenticate via subscription-based services instead of static API keys.
+
+**Architecture:**
+- Token store: `~/.claude-code-router/auth.json` (file permissions `0600`)
+- Token schema: discriminated union — `{ type: "oauth", access, refresh, expires }` or `{ type: "api", key }`
+- Dynamic token resolution: `LLMProvider.getApiKey?: () => Promise<string>` — called at request time, auto-refreshes expired tokens
+
+**OAuth Flows:**
+- `packages/shared/src/auth/oauth/deviceCode.ts` — Device Code Flow (RFC 8628) for GitHub Copilot
+- `packages/shared/src/auth/oauth/authorizationCode.ts` — Authorization Code + PKCE for Codex, Anthropic, Gemini, Antigravity
+
+**Built-in OAuth Providers** (`packages/shared/src/auth/providers/`):
+
+| Provider | Flow | Port | Notes |
+|----------|------|------|-------|
+| `copilot` | Device Code | N/A | GitHub Copilot, no local server needed |
+| `anthropic` | Auth Code + PKCE | 8086 | Claude Pro/Max subscription, ToS risk |
+| `antigravity` | Google OAuth | 8087 | Google OAuth, requires `client_secret` |
+| `codex` | Auth Code + PKCE | 1455 | ChatGPT Plus/Pro, custom callback path `/auth/callback` |
+| `gemini` | Google OAuth | 8088 | Google OAuth, requires `client_secret`, callback `/oauth2callback` |
+
+**Server-side OAuth endpoints** (`packages/server/src/api/authRoutes.ts`):
+- `GET /api/auth/providers` — list available OAuth providers and their status
+- `POST /api/auth/login/:provider` — start OAuth login flow
+- `POST /api/auth/logout/:provider` — remove stored tokens
+- `GET /api/auth/status` — token status summary
+
+**Provider pipeline** (`packages/server/src/index.ts`):
+- `oauthTokenResolvers` map wires each OAuth provider to its `getAccessToken` function
+- Provider registration skips `api_key` requirement when `auth_type: "oauth"` is set
+
+**Config schema for OAuth providers:**
+```json
+{
+  "name": "copilot",
+  "api_base_url": "https://api.githubcopilot.com",
+  "auth_type": "oauth",
+  "oauth_provider": "copilot",
+  "models": ["gpt-4o", "claude-sonnet-4-5"]
+}
+```
+
+### 6. Configuration Management
 
 Configuration file location: `~/.claude-code-router/config.json`
 
@@ -104,8 +165,9 @@ Key features:
 Configuration validation:
 - If `Providers` are configured, both `HOST` and `APIKEY` must be set
 - Otherwise listens on `0.0.0.0` without authentication
+- OAuth providers use `auth_type: "oauth"` + `oauth_provider` instead of `api_key`
 
-### 6. Logging System
+### 7. Logging System
 
 Two separate logging systems:
 
@@ -131,6 +193,16 @@ ccr preset     # Manage presets (export, install, list, info, delete)
 ccr activate   # Output shell environment variables (for integration)
 ccr ui         # Open Web UI
 ccr statusline # Integrated statusline (reads JSON from stdin)
+ccr auth       # OAuth authentication management
+```
+
+### Auth Commands
+
+```bash
+ccr auth login <provider>     # Start OAuth login (copilot, anthropic, antigravity, codex, gemini)
+ccr auth logout <provider>    # Remove stored tokens
+ccr auth list                 # List all stored authentications
+ccr auth status [provider]    # Show authentication status
 ```
 
 ### Preset Commands
@@ -153,92 +225,36 @@ Please help me analyze this code...
 
 ## Preset System
 
-The preset system allows users to save, share, and reuse configurations easily.
+Presets allow users to save, share, and reuse configurations. Stored in `~/.claude-code-router/presets/<preset-name>/manifest.json`.
 
-### Preset Structure
-
-Presets are stored in `~/.claude-code-router/presets/<preset-name>/manifest.json`
-
-Each preset contains:
-- **Metadata**: name, version, description, author, keywords, etc.
-- **Configuration**: Providers, Router, transformers, and other settings
-- **Dynamic Schema** (optional): Input fields for collecting required information during installation
-- **Required Inputs** (optional): Fields that need to be filled during installation (e.g., API keys)
-
-### Core Functions
-
-Located in `packages/shared/src/preset/`:
-
-- **export.ts**: Export current configuration as a preset directory
-  - `exportPreset(presetName, config, options)`: Creates preset directory with manifest.json
-  - Automatically sanitizes sensitive data (api_key fields become `{{field}}` placeholders)
-
-- **install.ts**: Install and manage presets
-  - `installPreset(preset, config, options)`: Install preset to config
-  - `loadPreset(source)`: Load preset from directory
-  - `listPresets()`: List all installed presets
-  - `isPresetInstalled(presetName)`: Check if preset is installed
-  - `validatePreset(preset)`: Validate preset structure
-
-- **merge.ts**: Merge preset configuration with existing config
-  - Handles conflicts using different strategies (ask, overwrite, merge, skip)
-
-- **sensitiveFields.ts**: Identify and sanitize sensitive fields
-  - Detects api_key, password, secret fields automatically
-  - Replaces sensitive values with environment variable placeholders
-
-### Preset File Format
-
-**manifest.json** (in preset directory):
-```json
-{
-  "name": "my-preset",
-  "version": "1.0.0",
-  "description": "My configuration",
-  "author": "Author Name",
-  "keywords": ["openai", "production"],
-  "Providers": [...],
-  "Router": {...},
-  "schema": [
-    {
-      "id": "apiKey",
-      "type": "password",
-      "label": "OpenAI API Key",
-      "prompt": "Enter your OpenAI API key"
-    }
-  ]
-}
-```
-
-### CLI Integration
-
-The CLI layer (`packages/cli/src/utils/preset/`) handles:
-- User interaction and prompts
-- File operations
-- Display formatting
-
-Key files:
-- `commands.ts`: Command handlers for `ccr preset` subcommands
-- `export.ts`: CLI wrapper for export functionality
-- `install.ts`: CLI wrapper for install functionality
+- Core logic: `packages/shared/src/preset/` (export, install, merge, sensitive field sanitization)
+- CLI layer: `packages/cli/src/utils/preset/` (user interaction, file ops, display)
+- Export automatically sanitizes sensitive data (api_key fields become `{{field}}` placeholders)
+- Install supports conflict strategies: ask, overwrite, merge, skip
 
 ## Dependencies
 
 ```
-cli → server → shared
-server → @musistudio/llms (core routing and transformation logic)
-ui (standalone frontend application)
+cli    → server, shared
+server → core (@musistudio/llms), shared
+core   → shared
+ui     (standalone frontend application)
+docs   (standalone documentation site)
 ```
+
+All inter-package dependencies use `workspace:*` protocol.
 
 ## Development Notes
 
-1. **Node.js version**: Requires >= 18.0.0
-2. **Package manager**: Uses pnpm (monorepo depends on workspace protocol)
-3. **TypeScript**: All packages use TypeScript, but UI package is ESM module
+1. **Node.js version**: Requires >= 20.0.0
+2. **Package manager**: Uses pnpm >= 8.0.0 (monorepo depends on workspace protocol)
+3. **TypeScript**: All packages use TypeScript; UI and core packages are ESM modules
 4. **Build tools**:
    - cli/server/shared: esbuild
+   - core: custom build script (tsx)
    - ui: Vite + TypeScript
-5. **@musistudio/llms**: This is an external dependency package providing the core server framework and transformer functionality, type definitions in `packages/server/src/types.d.ts`
+   - docs: Docusaurus
+5. **@musistudio/llms**: This is a workspace package at `packages/core/`, providing the core server framework (Fastify), transformer functionality, and provider adapters. Type definitions in `packages/server/src/types.d.ts`
 6. **Code comments**: All comments in code MUST be written in English
 7. **Documentation**: When implementing new features, add documentation to the docs project instead of creating standalone md files
 

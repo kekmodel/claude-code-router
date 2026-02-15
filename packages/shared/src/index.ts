@@ -17,4 +17,5 @@ export * from './auth/oauth/deviceCode';
 export * from './auth/oauth/authorizationCode';
 export * from './auth/oauth/tokenRefresh';
 export * from './auth/providers';
+export * from './auth/modelFetcher';
 
