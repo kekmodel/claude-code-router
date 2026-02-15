@@ -345,6 +345,32 @@ class ApiClient {
   async getAuthStatus(provider: string): Promise<{ provider: string; status: string; type?: string; expiresAt?: number }> {
     return this.get<{ provider: string; status: string; type?: string; expiresAt?: number }>(`/auth/status/${encodeURIComponent(provider)}`);
   }
+
+  // Fetch available models for an OAuth provider
+  async fetchAuthModels(provider: string): Promise<{ provider: string; models: Array<{ id: string; name?: string; provider: string; reasoningLevels?: string[]; defaultReasoningLevel?: string; plans?: string[] }> }> {
+    return this.get<{ provider: string; models: Array<{ id: string; name?: string; provider: string; reasoningLevels?: string[]; defaultReasoningLevel?: string; plans?: string[] }> }>(`/auth/models/${encodeURIComponent(provider)}`);
+  }
+
+  // Fetch all available models for router configuration (static + OAuth)
+  async fetchRouterModels(): Promise<{
+    models: Array<{
+      value: string;
+      label: string;
+      provider: string;
+      reasoningLevels?: string[];
+      defaultReasoningLevel?: string;
+    }>;
+  }> {
+    return this.get<{
+      models: Array<{
+        value: string;
+        label: string;
+        provider: string;
+        reasoningLevels?: string[];
+        defaultReasoningLevel?: string;
+      }>;
+    }>("/router/models");
+  }
 }
 
 // Create a default instance of the API client

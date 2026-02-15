@@ -1,13 +1,32 @@
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useConfig } from "./ConfigProvider";
 import { Combobox } from "./ui/combobox";
+import { api } from "@/lib/api";
+
+interface RouterModel {
+  value: string;
+  label: string;
+  provider: string;
+  reasoningLevels?: string[];
+  defaultReasoningLevel?: string;
+}
 
 export function Router() {
   const { t } = useTranslation();
   const { config, setConfig } = useConfig();
+  const [routerModels, setRouterModels] = useState<RouterModel[]>([]);
+
+  useEffect(() => {
+    api.fetchRouterModels()
+      .then((res) => setRouterModels(res.models || []))
+      .catch(() => {
+        // Fallback to static config models
+      });
+  }, [config?.Providers]);
 
   // Handle case where config is null or undefined
   if (!config) {
@@ -45,24 +64,26 @@ export function Router() {
     setConfig({ ...config, forceUseImageAgent: value });
   };
 
-  // Handle case where config.Providers might be null or undefined
+  // Fallback: use static config models if API fetch hasn't returned
   const providers = Array.isArray(config.Providers) ? config.Providers : [];
-  
-  const modelOptions = providers.flatMap((provider) => {
-    // Handle case where individual provider might be null or undefined
+  const fallbackOptions = providers.flatMap((provider) => {
     if (!provider) return [];
-    
-    // Handle case where provider.models might be null or undefined
     const models = Array.isArray(provider.models) ? provider.models : [];
-    
-    // Handle case where provider.name might be null or undefined
     const providerName = provider.name || "Unknown Provider";
-    
-    return models.map((model) => ({
+    return models.map((model: string) => ({
       value: `${providerName},${model || "Unknown Model"}`,
       label: `${providerName}, ${model || "Unknown Model"}`,
     }));
   });
+
+  const modelOptions = routerModels.length > 0
+    ? routerModels.map((m) => {
+        const suffix = m.reasoningLevels?.length
+          ? ` [${m.reasoningLevels.join("/")}]`
+          : "";
+        return { value: m.value, label: m.label + suffix };
+      })
+    : fallbackOptions;
 
   return (
     <Card className="flex h-full flex-col rounded-lg border shadow-sm">

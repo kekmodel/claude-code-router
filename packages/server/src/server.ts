@@ -27,8 +27,10 @@ import {
   isTokenExpired,
   getAvailableOAuthProviders,
   startCopilotLogin,
-  startAnthropicLogin,
+  startCodexLogin,
+  startGeminiLogin,
   startAntigravityLogin,
+  fetchOAuthModels,
 } from "@CCR/shared";
 import fastifyMultipart from "@fastify/multipart";
 import AdmZip from "adm-zip";
@@ -520,13 +522,22 @@ export const createServer = async (config: any): Promise<any> => {
             message: "Visit the URL and enter the code to authenticate.",
           };
         }
-        case "anthropic": {
-          const { authUrl, waitForAuth } = await startAnthropicLogin();
-          waitForAuth().catch(err => console.error("Anthropic auth error:", err.message));
+        case "codex": {
+          const { authUrl, waitForAuth } = await startCodexLogin();
+          waitForAuth().catch(err => console.error("Codex auth error:", err.message));
           return {
             flow: "authorization_code",
             authUrl,
-            message: "Visit the URL to authenticate with Anthropic.",
+            message: "Visit the URL to authenticate with OpenAI Codex.",
+          };
+        }
+        case "gemini": {
+          const { authUrl, waitForAuth } = await startGeminiLogin();
+          waitForAuth().catch(err => console.error("Gemini auth error:", err.message));
+          return {
+            flow: "authorization_code",
+            authUrl,
+            message: "Visit the URL to authenticate with Google for Gemini.",
           };
         }
         case "antigravity": {
@@ -589,6 +600,69 @@ export const createServer = async (config: any): Promise<any> => {
     } catch (error: any) {
       console.error("Failed to get auth status:", error);
       reply.status(500).send({ error: error.message || "Failed to get auth status" });
+    }
+  });
+
+  // Get all available models for router configuration (static + OAuth)
+  app.get("/api/router/models", async (req: any, reply: any) => {
+    // 1. Static models from config Providers
+    const config = await readConfigFile();
+    const providers = Array.isArray(config.Providers) ? config.Providers : [];
+    const models: Array<{
+      value: string;
+      label: string;
+      provider: string;
+      reasoningLevels?: string[];
+      defaultReasoningLevel?: string;
+    }> = [];
+
+    for (const p of providers) {
+      if (!p?.name || !Array.isArray(p.models)) continue;
+      for (const model of p.models) {
+        models.push({
+          value: `${p.name},${model}`,
+          label: `${p.name}, ${model}`,
+          provider: p.name,
+        });
+      }
+    }
+
+    // 2. OAuth models (from authenticated providers)
+    for (const p of providers) {
+      if (p?.auth_type !== "oauth" || !p?.oauth_provider) continue;
+      try {
+        const oauthModels = await fetchOAuthModels(p.oauth_provider);
+        const existingValues = new Set(models.map((m) => m.value));
+        for (const om of oauthModels) {
+          const value = `${p.name},${om.id}`;
+          if (!existingValues.has(value)) {
+            models.push({
+              value,
+              label: `${p.name}, ${om.name || om.id}`,
+              provider: p.name,
+              reasoningLevels: om.reasoningLevels,
+              defaultReasoningLevel: om.defaultReasoningLevel,
+            });
+            existingValues.add(value);
+          }
+        }
+      } catch {
+        // OAuth not authenticated or fetch failed — skip
+      }
+    }
+
+    return { models };
+  });
+
+  // Fetch available models for an OAuth provider
+  app.get("/api/auth/models/:provider", async (req: any, reply: any) => {
+    try {
+      const { provider } = req.params;
+      const models = await fetchOAuthModels(provider);
+      return { provider, models };
+    } catch (error: any) {
+      console.error("Failed to fetch OAuth models:", error);
+      reply.status(500).send({ error: error.message || "Failed to fetch models" });
     }
   });
 
