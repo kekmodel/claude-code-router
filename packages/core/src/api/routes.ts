@@ -347,8 +347,12 @@ async function sendRequestToProvider(
     : provider.apiKey;
 
   // Prepare headers
+  const extraHeaders = provider.getExtraHeaders
+    ? await provider.getExtraHeaders()
+    : {};
   const requestHeaders: Record<string, string> = {
     Authorization: `Bearer ${resolvedToken}`,
+    ...extraHeaders,
     ...(config?.headers || {}),
   };
 

@@ -90,6 +90,7 @@ export class OpenAIResponsesTransformer implements Transformer {
     if (systemMessages.length > 0) {
       const firstSystem = systemMessages[0];
       if (Array.isArray(firstSystem.content)) {
+        const texts: string[] = [];
         firstSystem.content.forEach((item) => {
           let text = "";
           if (typeof item === "string") {
@@ -97,14 +98,14 @@ export class OpenAIResponsesTransformer implements Transformer {
           } else if (item && typeof item === "object" && "text" in item) {
             text = (item as { text: string }).text;
           }
-          input.push({
-            role: "system",
-            content: text,
-          });
+          if (text) texts.push(text);
         });
+        (request as any).instructions = texts.join("\n") || "You are a helpful assistant.";
       } else {
-        (request as any).instructions = firstSystem.content;
+        (request as any).instructions = firstSystem.content || "You are a helpful assistant.";
       }
+    } else {
+      (request as any).instructions = "You are a helpful assistant.";
     }
 
     request.messages.forEach((message) => {
@@ -149,10 +150,16 @@ export class OpenAIResponsesTransformer implements Transformer {
         return;
       }
 
-      input.push(message);
+      // Strip fields not supported by the Responses API (e.g., Anthropic thinking, cache_control)
+      const cleanMessage: any = { role: message.role };
+      if (message.content !== undefined && message.content !== null) {
+        cleanMessage.content = message.content;
+      }
+      input.push(cleanMessage);
     });
 
     (request as any).input = input;
+    (request as any).store = false;
     delete (request as any).messages;
 
     if (Array.isArray(request.tools)) {
@@ -226,7 +233,8 @@ export class OpenAIResponsesTransformer implements Transformer {
         statusText: response.statusText,
         headers: response.headers,
       });
-    } else if (contentType.includes("text/event-stream")) {
+    } else {
+      // Treat any non-JSON response as SSE (Responses API returns either JSON or SSE)
       if (!response.body) {
         return response;
       }
@@ -477,7 +485,8 @@ export class OpenAIResponsesTransformer implements Transformer {
                           ? "tool_calls"
                           : "stop";
 
-                        const endChunk = {
+                        const responseUsage = data.response?.usage;
+                        const endChunk: any = {
                           id: data.response?.id || "chatcmpl-" + Date.now(),
                           object: "chat.completion.chunk",
                           created: Math.floor(Date.now() / 1000),
@@ -490,6 +499,13 @@ export class OpenAIResponsesTransformer implements Transformer {
                             },
                           ],
                         };
+                        if (responseUsage) {
+                          endChunk.usage = {
+                            prompt_tokens: responseUsage.input_tokens || 0,
+                            completion_tokens: responseUsage.output_tokens || 0,
+                            total_tokens: responseUsage.total_tokens || (responseUsage.input_tokens || 0) + (responseUsage.output_tokens || 0),
+                          };
+                        }
 
                         controller.enqueue(
                           encoder.encode(
@@ -603,8 +619,6 @@ export class OpenAIResponsesTransformer implements Transformer {
         },
       });
     }
-
-    return response;
   }
 
   private normalizeRequestContent(content: any, role: string | undefined) {

@@ -207,6 +207,7 @@ export interface LLMProvider {
   authType?: AuthType;
   oauthProvider?: string;
   getApiKey?: () => Promise<string>;
+  getExtraHeaders?: () => Promise<Record<string, string>>;
   transformer?: {
     [key: string]: {
       use?: Transformer[];

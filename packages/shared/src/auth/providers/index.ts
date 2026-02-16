@@ -16,6 +16,7 @@ export {
   CODEX_OAUTH_CONFIG,
   startCodexLogin,
   getCodexAccessToken,
+  getCodexExtraHeaders,
   getCodexBaseUrl,
 } from './codex';
 

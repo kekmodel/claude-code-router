@@ -141,8 +141,19 @@ export async function getCodexAccessToken(): Promise<string> {
 }
 
 /**
- * Get the OpenAI API base URL
+ * Get extra headers required by the Codex API (chatgpt-account-id).
+ */
+export async function getCodexExtraHeaders(): Promise<Record<string, string>> {
+  const token = await getToken("codex");
+  if (token?.type === "oauth" && token.accountId) {
+    return { "chatgpt-account-id": token.accountId };
+  }
+  return {};
+}
+
+/**
+ * Get the Codex API base URL
  */
 export function getCodexBaseUrl(): string {
-  return "https://api.openai.com";
+  return "https://chatgpt.com/backend-api/codex/responses";
 }

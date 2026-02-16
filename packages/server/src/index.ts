@@ -5,7 +5,7 @@ import { join } from "path";
 import { initConfig, initDir } from "./utils";
 import { createServer } from "./server";
 import { apiKeyAuth } from "./middleware/auth";
-import { CONFIG_FILE, HOME_DIR, listPresets, getCopilotAccessToken, getCodexAccessToken, getGeminiAccessToken, getAntigravityAccessToken } from "@CCR/shared";
+import { CONFIG_FILE, HOME_DIR, listPresets, getCopilotAccessToken, getCodexAccessToken, getCodexExtraHeaders, getGeminiAccessToken, getAntigravityAccessToken } from "@CCR/shared";
 import { createStream } from 'rotating-file-stream';
 import { sessionUsageCache } from "@musistudio/llms";
 import { SSEParserTransform } from "./utils/SSEParser.transform";
@@ -96,8 +96,13 @@ const oauthTokenResolvers: Record<string, () => Promise<string>> = {
   antigravity: getAntigravityAccessToken,
 };
 
+// Extra headers resolver registry: maps oauth_provider name to getExtraHeaders function
+const oauthExtraHeadersResolvers: Record<string, () => Promise<Record<string, string>>> = {
+  codex: getCodexExtraHeaders,
+};
+
 /**
- * Wire up getApiKey functions for OAuth-authenticated providers
+ * Wire up getApiKey and getExtraHeaders functions for OAuth-authenticated providers
  */
 function wireOAuthProviders(serverInstance: any) {
   const providers = serverInstance.providerService?.getProviders() || [];
@@ -111,6 +116,10 @@ function wireOAuthProviders(serverInstance: any) {
         console.error(
           `OAuth provider '${provider.oauthProvider}' not found for provider '${provider.name}'. Available: ${available}`
         );
+      }
+      const headersResolver = oauthExtraHeadersResolvers[provider.oauthProvider];
+      if (headersResolver) {
+        provider.getExtraHeaders = headersResolver;
       }
     }
   }

@@ -36,7 +36,7 @@ const OAUTH_PROVIDER_TEMPLATES: ProviderType[] = [
   },
   {
     name: "codex",
-    api_base_url: "https://api.openai.com/v1/responses",
+    api_base_url: "https://chatgpt.com/backend-api/codex/responses",
     api_key: "",
     models: [],
     auth_type: "oauth",
