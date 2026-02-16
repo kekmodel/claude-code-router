@@ -136,11 +136,11 @@ export function Router() {
       return {
         label: provider,
         value: provider,
-        default: findModel(["sonnet", "4o", "pro", "2.5"]),
-        background: findModel(["haiku", "mini", "flash"]),
-        think: findModel(["sonnet", "o3", "pro", "2.5"]),
-        longContext: findModel(["sonnet", "4o", "pro", "2.5"]),
-        webSearch: findModel(["sonnet", "4o", "pro", "2.5"]),
+        default: findModel(["opus", "codex", "gpt-5.3", "sonnet", "gpt-5", "4.1", "3-pro", "pro", "4o"]),
+        background: findModel(["haiku", "-mini", "3-flash", "flash"]),
+        think: findModel(["thinking", "opus", "codex", "gpt-5.3", "o3", "sonnet", "gpt-5", "3-pro", "pro"]),
+        longContext: findModel(["4.1", "-mini", "3-pro", "pro", "sonnet", "flash", "4o"]),
+        webSearch: findModel(["4.1", "-mini", "sonnet", "3-flash", "flash", "gpt-5", "4o", "pro"]),
       };
     });
   }, [routerModels]);
