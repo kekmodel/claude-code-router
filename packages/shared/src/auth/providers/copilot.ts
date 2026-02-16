@@ -19,6 +19,9 @@ export const COPILOT_OAUTH_CONFIG: OAuthProviderConfig = {
 const COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token";
 const COPILOT_DEFAULT_BASE_URL = "https://api.githubcopilot.com";
 
+// Dedup map: prevents concurrent Copilot token refresh attempts
+const refreshingCopilot = new Map<string, Promise<string>>();
+
 export const COPILOT_EDITOR_HEADERS: Record<string, string> = {
   "editor-version": "vscode/1.95.0",
   "editor-plugin-version": "copilot/1.250.0",
@@ -78,6 +81,7 @@ export async function getCopilotApiToken(githubToken: string): Promise<CopilotTo
       Accept: "application/json",
       ...COPILOT_EDITOR_HEADERS,
     },
+    signal: AbortSignal.timeout(15_000),
   });
 
   if (!response.ok) {
@@ -102,7 +106,10 @@ export async function getCopilotAccessToken(): Promise<string> {
     return token.access;
   }
 
-  try {
+  const existing = refreshingCopilot.get("copilot");
+  if (existing) return existing;
+
+  const refreshPromise = (async () => {
     const copilotToken = await getCopilotApiToken(token.refresh);
     const updatedToken: OAuthToken = {
       ...token,
@@ -111,6 +118,12 @@ export async function getCopilotAccessToken(): Promise<string> {
     };
     await saveToken("copilot", updatedToken);
     return copilotToken.token;
+  })().finally(() => refreshingCopilot.delete("copilot"));
+
+  refreshingCopilot.set("copilot", refreshPromise);
+
+  try {
+    return await refreshPromise;
   } catch {
     throw new Error(
       "Failed to refresh Copilot token. Run `ccr auth login copilot` again."

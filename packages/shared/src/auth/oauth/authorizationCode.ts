@@ -15,6 +15,7 @@ interface ActiveFlow {
   authUrl: string;
   waitForCallback: () => Promise<string>;
   pkce: PKCEPair;
+  rejectCallback: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
 }
 const activeFlows = new Map<string, ActiveFlow>();
@@ -28,10 +29,20 @@ interface CallbackConfig {
   redirectUri: string;
 }
 
-function cleanupFlow(providerName: string): void {
+function createFlowTimeoutError(providerName: string): Error {
+  return new Error(`OAuth login timed out for ${providerName}. Please run login again.`);
+}
+
+function cleanupFlow(
+  providerName: string,
+  options?: { rejectError?: Error }
+): void {
   const flow = activeFlows.get(providerName);
   if (flow) {
     clearTimeout(flow.timeout);
+    if (options?.rejectError) {
+      flow.rejectCallback(options.rejectError);
+    }
     try { flow.server.close(); } catch {}
     activeFlows.delete(providerName);
   }
@@ -75,7 +86,10 @@ export async function startAuthCodeFlow(
   const existing = activeFlows.get(config.name);
   if (existing && existing.server.listening) {
     clearTimeout(existing.timeout);
-    existing.timeout = setTimeout(() => cleanupFlow(config.name), FLOW_TIMEOUT_MS);
+    existing.timeout = setTimeout(
+      () => cleanupFlow(config.name, { rejectError: createFlowTimeoutError(config.name) }),
+      FLOW_TIMEOUT_MS
+    );
     return {
       authUrl: existing.authUrl,
       waitForCallback: existing.waitForCallback,
@@ -85,7 +99,9 @@ export async function startAuthCodeFlow(
   }
 
   if (existing) {
-    cleanupFlow(config.name);
+    cleanupFlow(config.name, {
+      rejectError: new Error(`OAuth login flow for ${config.name} was restarted.`),
+    });
   }
 
   const { port, callbackPath, redirectUri } = resolveCallbackConfig(config);
@@ -104,11 +120,22 @@ export async function startAuthCodeFlow(
 
   let resolveCallback: (code: string) => void;
   let rejectCallback: (error: Error) => void;
+  let isSettled = false;
 
   const callbackPromise = new Promise<string>((resolve, reject) => {
     resolveCallback = resolve;
     rejectCallback = reject;
   });
+  const settleResolve = (code: string) => {
+    if (isSettled) return;
+    isSettled = true;
+    resolveCallback(code);
+  };
+  const settleReject = (error: Error) => {
+    if (isSettled) return;
+    isSettled = true;
+    rejectCallback(error);
+  };
 
   const server = createServer((req, res) => {
     const url = new URL(req.url || "/", `http://127.0.0.1:${port}`);
@@ -122,27 +149,27 @@ export async function startAuthCodeFlow(
         const errorDesc = url.searchParams.get("error_description") || error;
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end(`<html><body><h2>Authorization Failed</h2><p>${errorDesc}</p><p>You can close this window.</p></body></html>`);
-        rejectCallback(new Error(`OAuth error: ${errorDesc}`));
+        settleReject(new Error(`OAuth error: ${errorDesc}`));
         return;
       }
 
       if (returnedState !== state) {
         res.writeHead(400, { "Content-Type": "text/html" });
         res.end(`<html><body><h2>Invalid State</h2><p>State mismatch. Please try again.</p></body></html>`);
-        rejectCallback(new Error("OAuth state mismatch"));
+        settleReject(new Error("OAuth state mismatch"));
         return;
       }
 
       if (!code) {
         res.writeHead(400, { "Content-Type": "text/html" });
         res.end(`<html><body><h2>Missing Code</h2><p>No authorization code received.</p></body></html>`);
-        rejectCallback(new Error("No authorization code received"));
+        settleReject(new Error("No authorization code received"));
         return;
       }
 
       res.writeHead(200, { "Content-Type": "text/html" });
       res.end(`<html><body><h2>Authorization Successful</h2><p>You can close this window and return to the terminal.</p></body></html>`);
-      resolveCallback(code);
+      settleResolve(code);
     } else {
       res.writeHead(404);
       res.end("Not Found");
@@ -171,8 +198,18 @@ export async function startAuthCodeFlow(
     }
   };
 
-  const timeout = setTimeout(() => cleanupFlow(config.name), FLOW_TIMEOUT_MS);
-  activeFlows.set(config.name, { server, authUrl, waitForCallback, pkce, timeout });
+  const timeout = setTimeout(
+    () => cleanupFlow(config.name, { rejectError: createFlowTimeoutError(config.name) }),
+    FLOW_TIMEOUT_MS
+  );
+  activeFlows.set(config.name, {
+    server,
+    authUrl,
+    waitForCallback,
+    pkce,
+    rejectCallback: settleReject,
+    timeout,
+  });
 
   return { authUrl, waitForCallback, server, pkce };
 }

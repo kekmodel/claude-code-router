@@ -18,7 +18,7 @@ import {
 import { X, Trash2, Plus, Eye, EyeOff, Search, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Combobox } from "@/components/ui/combobox";
-import { ComboInput } from "@/components/ui/combo-input";
+import { ComboInput, type ComboInputRef } from "@/components/ui/combo-input";
 import { api } from "@/lib/api";
 import type { Provider } from "@/types";
 
@@ -82,7 +82,7 @@ export function Providers() {
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>("");
-  const comboInputRef = useRef<HTMLInputElement>(null);
+  const comboInputRef = useRef<ComboInputRef>(null);
 
   useEffect(() => {
     const fetchProviderTemplates = async () => {
@@ -691,7 +691,12 @@ export function Providers() {
   const handleTemplateImport = (value: string) => {
     if (!value) return;
     try {
-        const selectedTemplate = JSON.parse(value) as Provider;
+      const parsed = JSON.parse(value);
+      if (!parsed || typeof parsed !== 'object' || !parsed.name || !parsed.api_base_url) {
+        console.error("Invalid template: missing required fields (name, api_base_url)");
+        return;
+      }
+      const selectedTemplate = parsed as Provider;
       if (selectedTemplate) {
         const currentName = editingProviderData?.name;
         const newProviderData = cloneProviderData(selectedTemplate);
@@ -922,13 +927,10 @@ export function Providers() {
                     <Button 
                       onClick={() => {
                         if (hasFetchedModels[editingProviderIndex] && comboInputRef.current) {
-                          // Use ComboInput logic
-                          const comboInput = comboInputRef.current as unknown as { getCurrentValue(): string; clearInput(): void };
-                          const currentValue = comboInput.getCurrentValue();
+                          const currentValue = comboInputRef.current.getCurrentValue();
                           if (currentValue && currentValue.trim() && editingProviderIndex !== null) {
                             handleAddModel(editingProviderIndex, currentValue.trim());
-                            // Clear ComboInput
-                            comboInput.clearInput();
+                            comboInputRef.current.clearInput();
                           }
                         } else {
                           // Use plain Input logic

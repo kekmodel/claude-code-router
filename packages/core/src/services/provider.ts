@@ -200,15 +200,6 @@ export class ProviderService {
     return true;
   }
 
-  toggleProvider(name: string, enabled: boolean): boolean {
-    void enabled;
-    const provider = this.providers.get(name);
-    if (!provider) {
-      return false;
-    }
-    return true;
-  }
-
   resolveModelRoute(modelName: string): RequestRouteInfo | null {
     const route = this.modelRoutes.get(modelName);
     if (!route) {

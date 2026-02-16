@@ -20,6 +20,11 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 
+export interface ComboInputRef {
+  getCurrentValue(): string;
+  clearInput(): void;
+}
+
 interface ComboInputProps {
   options: { label: string; value: string }[];
   value?: string;
@@ -30,7 +35,7 @@ interface ComboInputProps {
   inputPlaceholder?: string;
 }
 
-export const ComboInput = React.forwardRef<HTMLInputElement, ComboInputProps>(({
+export const ComboInput = React.forwardRef<ComboInputRef, ComboInputProps>(({
   options,
   value,
   onChange,
@@ -42,9 +47,6 @@ export const ComboInput = React.forwardRef<HTMLInputElement, ComboInputProps>(({
   const [open, setOpen] = React.useState(false)
   const [inputValue, setInputValue] = React.useState(value || "")
   const internalInputRef = React.useRef<HTMLInputElement>(null)
-
-  // Forward ref to the internal input
-  React.useImperativeHandle(ref, () => internalInputRef.current as HTMLInputElement)
 
   React.useEffect(() => {
     setInputValue(value || "")
@@ -78,13 +80,11 @@ export const ComboInput = React.forwardRef<HTMLInputElement, ComboInputProps>(({
 
   // Expose methods through the ref
   React.useImperativeHandle(ref, () => ({
-    ...internalInputRef.current!,
-    value: inputValue,
     getCurrentValue,
     clearInput: () => {
       setInputValue("")
       onChange("")
-    }
+    },
   }))
 
   return (

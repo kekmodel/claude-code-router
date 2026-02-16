@@ -418,14 +418,22 @@ async function sendRequestToProvider(
 
   // Send HTTP request
   // Resolve token: use dynamic resolver (OAuth) if available, otherwise static apiKey
-  const resolvedToken = provider.getApiKey
-    ? await provider.getApiKey()
-    : provider.apiKey;
-
-  // Prepare headers
-  const extraHeaders = provider.getExtraHeaders
-    ? await provider.getExtraHeaders()
-    : {};
+  let resolvedToken: string;
+  let extraHeaders: Record<string, string> = {};
+  try {
+    resolvedToken = provider.getApiKey
+      ? await provider.getApiKey()
+      : provider.apiKey;
+    extraHeaders = provider.getExtraHeaders
+      ? await provider.getExtraHeaders()
+      : {};
+  } catch (error: any) {
+    throw createApiError(
+      `Authentication failed for provider "${provider.name}": ${error.message || 'Unknown error'}`,
+      401,
+      'authentication_required'
+    );
+  }
   const requestHeaders: Record<string, string> = {
     Authorization: `Bearer ${resolvedToken}`,
     ...extraHeaders,
@@ -718,32 +726,16 @@ export const registerApiRoutes = async (
           properties: { id: { type: "string" } },
           required: ["id"],
         },
-        body: {
-          type: "object",
-          properties: { enabled: { type: "boolean" } },
-          required: ["enabled"],
-        },
       },
     },
-    async (
-      request: FastifyRequest<{
-        Params: { id: string };
-        Body: { enabled: boolean };
-      }>,
-      reply
-    ) => {
-      const success = fastify.providerService.toggleProvider(
-        request.params.id,
-        request.body.enabled
-      );
-      if (!success) {
-        throw createApiError("Provider not found", 404, "provider_not_found");
-      }
-      return {
-        message: `Provider ${
-          request.body.enabled ? "enabled" : "disabled"
-        } successfully`,
-      };
+    async (_request, reply) => {
+      return reply.code(501).send({
+        error: {
+          message: "Provider toggle is not yet implemented. This endpoint is deprecated and will be removed in the next major version.",
+          code: "not_implemented",
+          type: "api_error",
+        },
+      });
     }
   );
 };

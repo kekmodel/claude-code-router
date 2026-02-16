@@ -37,6 +37,9 @@ export const ANTIGRAVITY_OAUTH_CONFIG: OAuthProviderConfig = {
 
 const ANTIGRAVITY_ENDPOINT_DAILY_PROD = "https://daily-cloudcode-pa.googleapis.com";
 
+// Dedup map: prevents concurrent Antigravity token refresh attempts
+const refreshingAntigravity = new Map<string, Promise<string>>();
+
 // Endpoints tried in order when fetching the project ID
 const ANTIGRAVITY_LOAD_ENDPOINTS = [
   ANTIGRAVITY_ENDPOINT_DAILY_PROD,
@@ -133,7 +136,10 @@ export async function getAntigravityAccessToken(): Promise<string> {
     );
   }
 
-  try {
+  const existing = refreshingAntigravity.get("antigravity");
+  if (existing) return existing;
+
+  const refreshPromise = (async () => {
     const newTokens = await refreshAccessToken(ANTIGRAVITY_OAUTH_CONFIG, refreshToken);
 
     let freshProjectId = projectId;
@@ -151,6 +157,12 @@ export async function getAntigravityAccessToken(): Promise<string> {
     };
     await saveToken("antigravity", updatedToken);
     return updatedToken.access;
+  })().finally(() => refreshingAntigravity.delete("antigravity"));
+
+  refreshingAntigravity.set("antigravity", refreshPromise);
+
+  try {
+    return await refreshPromise;
   } catch (error) {
     if (error instanceof Error && error.message.includes("Token expired")) throw error;
     throw new Error(

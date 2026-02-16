@@ -2,9 +2,15 @@ import type { OAuthProviderConfig, OAuthTokenResponse, OAuthToken } from "../typ
 import { getToken, saveToken, isTokenExpired, calculateExpiry } from "../tokenStore";
 import { postOAuthForm } from "./http";
 
+const REFRESH_TIMEOUT_MS = 30_000;
+
+// Dedup map: prevents concurrent refresh attempts for the same provider
+const refreshingTokens = new Map<string, Promise<OAuthToken>>();
+
 export async function refreshAccessToken(
   config: OAuthProviderConfig,
-  refreshToken: string
+  refreshToken: string,
+  signal?: AbortSignal
 ): Promise<OAuthTokenResponse> {
   return postOAuthForm<OAuthTokenResponse>({
     url: config.tokenUrl,
@@ -15,6 +21,7 @@ export async function refreshAccessToken(
       refresh_token: refreshToken,
     },
     extraHeaders: config.extraHeaders,
+    signal: signal || AbortSignal.timeout(REFRESH_TIMEOUT_MS),
     requestErrorPrefix: "Token refresh failed",
     oauthErrorPrefix: "Token refresh error",
   });
@@ -25,15 +32,23 @@ async function refreshAndSaveOAuthToken(
   config: OAuthProviderConfig,
   token: OAuthToken
 ): Promise<OAuthToken> {
-  const refreshed = await refreshAccessToken(config, token.refresh);
-  const updatedToken: OAuthToken = {
-    ...token,
-    access: refreshed.access_token,
-    refresh: refreshed.refresh_token || token.refresh,
-    expires: calculateExpiry(refreshed.expires_in),
-  };
-  await saveToken(providerName, updatedToken);
-  return updatedToken;
+  const existing = refreshingTokens.get(providerName);
+  if (existing) return existing;
+
+  const refreshPromise = (async () => {
+    const refreshed = await refreshAccessToken(config, token.refresh);
+    const updatedToken: OAuthToken = {
+      ...token,
+      access: refreshed.access_token,
+      refresh: refreshed.refresh_token || token.refresh,
+      expires: calculateExpiry(refreshed.expires_in),
+    };
+    await saveToken(providerName, updatedToken);
+    return updatedToken;
+  })().finally(() => refreshingTokens.delete(providerName));
+
+  refreshingTokens.set(providerName, refreshPromise);
+  return refreshPromise;
 }
 
 /**
