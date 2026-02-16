@@ -116,6 +116,7 @@ OAuth support allows providers to authenticate via subscription-based services i
 - Token store: `~/.claude-code-router/auth.json` (file permissions `0600`)
 - Token schema: discriminated union — `{ type: "oauth", access, refresh, expires }` or `{ type: "api", key }`
 - Dynamic token resolution: `LLMProvider.getApiKey?: () => Promise<string>` — called at request time, auto-refreshes expired tokens
+- Dynamic extra headers: `LLMProvider.getExtraHeaders?: () => Promise<Record<string, string>>` — injects provider-specific headers (e.g., `chatgpt-account-id` for Codex)
 
 **OAuth Flows:**
 - `packages/shared/src/auth/oauth/deviceCode.ts` — Device Code Flow (RFC 8628) for GitHub Copilot
@@ -139,6 +140,7 @@ OAuth support allows providers to authenticate via subscription-based services i
 
 **Provider pipeline** (`packages/server/src/index.ts`):
 - `oauthTokenResolvers` map wires each OAuth provider to its `getAccessToken` function
+- `oauthExtraHeadersResolvers` map wires provider-specific HTTP headers (e.g., Codex `chatgpt-account-id`)
 - Provider registration skips `api_key` requirement when `auth_type: "oauth"` is set
 
 **Config schema for OAuth providers:**
