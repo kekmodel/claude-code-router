@@ -1,39 +1,39 @@
 import type { OAuthProviderConfig, OAuthTokenResponse, OAuthToken } from "../types";
 import { getToken, saveToken, isTokenExpired, calculateExpiry } from "../tokenStore";
+import { postOAuthForm } from "./http";
 
 export async function refreshAccessToken(
   config: OAuthProviderConfig,
   refreshToken: string
 ): Promise<OAuthTokenResponse> {
-  const params = new URLSearchParams({
-    client_id: config.clientId,
-    ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-  });
-
-  const response = await fetch(config.tokenUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-      ...(config.extraHeaders || {}),
+  return postOAuthForm<OAuthTokenResponse>({
+    url: config.tokenUrl,
+    params: {
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
     },
-    body: params.toString(),
+    extraHeaders: config.extraHeaders,
+    requestErrorPrefix: "Token refresh failed",
+    oauthErrorPrefix: "Token refresh error",
   });
+}
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Token refresh failed: ${response.status} ${errorText}`);
-  }
-
-  const data = (await response.json()) as OAuthTokenResponse;
-
-  if (data.error) {
-    throw new Error(`Token refresh error: ${data.error} - ${data.error_description || ""}`);
-  }
-
-  return data;
+async function refreshAndSaveOAuthToken(
+  providerName: string,
+  config: OAuthProviderConfig,
+  token: OAuthToken
+): Promise<OAuthToken> {
+  const refreshed = await refreshAccessToken(config, token.refresh);
+  const updatedToken: OAuthToken = {
+    ...token,
+    access: refreshed.access_token,
+    refresh: refreshed.refresh_token || token.refresh,
+    expires: calculateExpiry(refreshed.expires_in),
+  };
+  await saveToken(providerName, updatedToken);
+  return updatedToken;
 }
 
 /**
@@ -62,14 +62,7 @@ export async function getOAuthAccessToken(
   }
 
   try {
-    const refreshed = await refreshAccessToken(config, token.refresh);
-    const updatedToken: OAuthToken = {
-      ...token,
-      access: refreshed.access_token,
-      refresh: refreshed.refresh_token || token.refresh,
-      expires: calculateExpiry(refreshed.expires_in),
-    };
-    await saveToken(providerName, updatedToken);
+    const updatedToken = await refreshAndSaveOAuthToken(providerName, config, token);
     return updatedToken.access;
   } catch (error) {
     console.error(`Token refresh failed for ${providerName}:`, error instanceof Error ? error.message : error);
@@ -94,16 +87,8 @@ export async function getValidToken(
   if (!token.refresh) return null;
 
   try {
-    const refreshed = await refreshAccessToken(config, token.refresh);
-    const newToken: OAuthToken = {
-      type: 'oauth',
-      access: refreshed.access_token,
-      refresh: refreshed.refresh_token || token.refresh,
-      expires: calculateExpiry(refreshed.expires_in),
-      accountId: token.accountId,
-    };
-    await saveToken(providerName, newToken);
-    return newToken.access;
+    const updatedToken = await refreshAndSaveOAuthToken(providerName, config, token);
+    return updatedToken.access;
   } catch (error) {
     console.error(`Token refresh failed for ${providerName}:`, error instanceof Error ? error.message : error);
     return null;

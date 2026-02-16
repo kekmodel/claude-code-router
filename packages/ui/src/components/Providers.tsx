@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +61,10 @@ const OAUTH_PROVIDER_TEMPLATES: Provider[] = [
   },
 ];
 
+type ParamInput = { name: string; value: string };
+type ParamInputMap = Record<string, ParamInput>;
+const EMPTY_PARAM_INPUT: ParamInput = { name: "", value: "" };
+
 export function Providers() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -68,8 +72,8 @@ export function Providers() {
   const [editingProviderIndex, setEditingProviderIndex] = useState<number | null>(null);
   const [deletingProviderIndex, setDeletingProviderIndex] = useState<number | null>(null);
   const [hasFetchedModels, setHasFetchedModels] = useState<Record<number, boolean>>({});
-  const [providerParamInputs, setProviderParamInputs] = useState<Record<string, {name: string, value: string}>>({});
-  const [modelParamInputs, setModelParamInputs] = useState<Record<string, {name: string, value: string}>>({});
+  const [providerParamInputs, setProviderParamInputs] = useState<ParamInputMap>({});
+  const [modelParamInputs, setModelParamInputs] = useState<ParamInputMap>({});
   const [availableTransformers, setAvailableTransformers] = useState<{name: string; endpoint: string | null;}[]>([]);
   const [editingProviderData, setEditingProviderData] = useState<Provider | null>(null);
   const [isNewProvider, setIsNewProvider] = useState<boolean>(false);
@@ -129,35 +133,75 @@ export function Providers() {
   // Validate config.Providers to ensure it's an array
   const validProviders = Array.isArray(config.Providers) ? config.Providers : [];
 
+  const cloneProviderData = (provider: Provider): Provider => (
+    JSON.parse(JSON.stringify(provider)) as Provider
+  );
+
+  const updateEditingProviderData = (updater: (provider: Provider) => void) => {
+    setEditingProviderData((prev) => {
+      if (!prev) return prev;
+      const next = cloneProviderData(prev);
+      updater(next);
+      return next;
+    });
+  };
+
+  const clearEditorValidation = () => {
+    setApiKeyError(null);
+    setNameError(null);
+  };
+
+  const setProviderApiKeyVisibility = (index: number | null, visible: boolean) => {
+    if (index === null) return;
+    setShowApiKey(prev => ({
+      ...prev,
+      [index]: visible,
+    }));
+  };
+
+  const clearProviderUiState = (index: number | null, clearFetchedModels: boolean) => {
+    if (index !== null) {
+      if (clearFetchedModels) {
+        setHasFetchedModels(prev => {
+          const newState = { ...prev };
+          delete newState[index];
+          return newState;
+        });
+      }
+      setShowApiKey(prev => {
+        const newState = { ...prev };
+        delete newState[index];
+        return newState;
+      });
+    }
+    clearEditorValidation();
+  };
+
+  const openProviderEditor = (index: number, provider: Provider, isNew: boolean) => {
+    setEditingProviderIndex(index);
+    setEditingProviderData(cloneProviderData(provider));
+    setIsNewProvider(isNew);
+    setProviderApiKeyVisibility(index, false);
+    clearEditorValidation();
+  };
+
+  const closeProviderEditor = (index: number | null, clearFetchedModels: boolean) => {
+    clearProviderUiState(index, clearFetchedModels);
+    setEditingProviderIndex(null);
+    setEditingProviderData(null);
+    setIsNewProvider(false);
+  };
 
   const handleAddProvider = () => {
     const newProvider: Provider = { name: "", api_base_url: "", api_key: "", models: [] };
-    setEditingProviderIndex(config.Providers.length);
-    setEditingProviderData(newProvider);
-    setIsNewProvider(true);
-    // Reset API key visibility and error when adding new provider
-    setShowApiKey(prev => ({
-      ...prev,
-      [config.Providers.length]: false
-    }));
-    setApiKeyError(null);
-    setNameError(null);
+    openProviderEditor(validProviders.length, newProvider, true);
   };
 
   const handleEditProvider = (index: number) => {
     // Find the actual index in the original providers array
     const actualIndex = validProviders.indexOf(filteredProviders[index]);
     const provider = config.Providers[actualIndex];
-    setEditingProviderIndex(actualIndex);
-    setEditingProviderData(JSON.parse(JSON.stringify(provider)));
-    setIsNewProvider(false);
-    // Reset API key visibility and error when opening edit dialog
-    setShowApiKey(prev => ({
-      ...prev,
-      [actualIndex]: false
-    }));
-    setApiKeyError(null);
-    setNameError(null);
+    openProviderEditor(actualIndex, provider, false);
   };
 
   const handleSaveProvider = () => {
@@ -193,51 +237,23 @@ export function Providers() {
     }
     
     // Clear errors if validation passes
-    setApiKeyError(null);
-    setNameError(null);
+    clearEditorValidation();
     
     if (editingProviderIndex !== null && editingProviderData) {
+      const providerToSave = cloneProviderData(editingProviderData);
       const newProviders = [...config.Providers];
       if (isNewProvider) {
-        newProviders.push(editingProviderData);
+        newProviders.push(providerToSave);
       } else {
-        newProviders[editingProviderIndex] = editingProviderData;
+        newProviders[editingProviderIndex] = providerToSave;
       }
       setConfig({ ...config, Providers: newProviders });
     }
-    // Reset API key visibility for this provider
-    if (editingProviderIndex !== null) {
-      setShowApiKey(prev => {
-        const newState = { ...prev };
-        delete newState[editingProviderIndex];
-        return newState;
-      });
-    }
-    setEditingProviderIndex(null);
-    setEditingProviderData(null);
-    setIsNewProvider(false);
+    closeProviderEditor(editingProviderIndex, false);
   };
 
   const handleCancelAddProvider = () => {
-    // Reset fetched models state for this provider
-    if (editingProviderIndex !== null) {
-      setHasFetchedModels(prev => {
-        const newState = { ...prev };
-        delete newState[editingProviderIndex];
-        return newState;
-      });
-      // Reset API key visibility for this provider
-      setShowApiKey(prev => {
-        const newState = { ...prev };
-        delete newState[editingProviderIndex];
-        return newState;
-      });
-    }
-    setEditingProviderIndex(null);
-    setEditingProviderData(null);
-    setIsNewProvider(false);
-    setApiKeyError(null);
-    setNameError(null);
+    closeProviderEditor(editingProviderIndex, true);
   };
 
   // Handle deletion by setting the correct index in the state
@@ -256,259 +272,429 @@ export function Providers() {
   };
 
   const handleProviderChange = (_index: number, field: string, value: string) => {
-    if (editingProviderData) {
-      const updatedProvider = { ...editingProviderData, [field]: value };
-      setEditingProviderData(updatedProvider);
+    updateEditingProviderData((provider) => {
+      (provider as any)[field] = value;
+    });
+  };
+
+  type TransformerParams = Record<string, unknown>;
+  type TransformerEntry = string | (string | TransformerParams | { max_tokens: number })[];
+  const getProviderParamKey = (providerIndex: number, transformerIndex: number) =>
+    `provider-${providerIndex}-transformer-${transformerIndex}`;
+  const getModelParamKey = (providerIndex: number, model: string, transformerIndex: number) =>
+    `model-${providerIndex}-${model}-transformer-${transformerIndex}`;
+
+  const getParamInput = (inputs: ParamInputMap, key: string): ParamInput => (
+    inputs[key] || EMPTY_PARAM_INPUT
+  );
+
+  const setParamInputField = (
+    setInputs: Dispatch<SetStateAction<ParamInputMap>>,
+    key: string,
+    field: keyof ParamInput,
+    value: string
+  ) => {
+    setInputs((prev) => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] || EMPTY_PARAM_INPUT),
+        [field]: value,
+      },
+    }));
+  };
+
+  const clearParamInput = (
+    setInputs: Dispatch<SetStateAction<ParamInputMap>>,
+    key: string
+  ) => {
+    setInputs((prev) => ({
+      ...prev,
+      [key]: EMPTY_PARAM_INPUT,
+    }));
+  };
+
+  const renderTransformerParameterEditor = ({
+    transformer,
+    inputKey,
+    paramInputs,
+    setParamInputs,
+    onAddParameter,
+    onRemoveParameter,
+  }: {
+    transformer: TransformerEntry;
+    inputKey: string;
+    paramInputs: ParamInputMap;
+    setParamInputs: Dispatch<SetStateAction<ParamInputMap>>;
+    onAddParameter: (paramName: string, paramValue: string) => void;
+    onRemoveParameter: (paramName: string) => void;
+  }) => {
+    const paramInput = getParamInput(paramInputs, inputKey);
+    const params = getTransformerParams(transformer);
+    return (
+      <div className="mt-2 pl-4 border-l-2 border-gray-200">
+        <Label className="text-sm">{t("providers.transformer_parameters")}</Label>
+        <div className="space-y-2 mt-1">
+          <div className="flex gap-2">
+            <Input
+              placeholder={t("providers.parameter_name")}
+              value={paramInput.name}
+              onChange={(e) => {
+                setParamInputField(
+                  setParamInputs,
+                  inputKey,
+                  "name",
+                  e.target.value
+                );
+              }}
+            />
+            <Input
+              placeholder={t("providers.parameter_value")}
+              value={paramInput.value}
+              onChange={(e) => {
+                setParamInputField(
+                  setParamInputs,
+                  inputKey,
+                  "value",
+                  e.target.value
+                );
+              }}
+            />
+            <Button
+              size="sm"
+              onClick={() => {
+                if (!paramInput.name || !paramInput.value) return;
+                onAddParameter(paramInput.name, paramInput.value);
+                clearParamInput(setParamInputs, inputKey);
+              }}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {Object.keys(params).length > 0 && (
+            <div className="space-y-1">
+              {Object.entries(params).map(([key, value]) => (
+                <div key={key} className="flex items-center justify-between bg-gray-50 rounded p-2">
+                  <div className="text-sm">
+                    <span className="font-medium">{key}:</span> {String(value)}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={() => onRemoveParameter(key)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderTransformerCard = ({
+    cardKey,
+    transformer,
+    onRemove,
+    parameterEditor,
+  }: {
+    cardKey: string;
+    transformer: TransformerEntry;
+    onRemove: () => void;
+    parameterEditor: ReactNode;
+  }) => (
+    <div key={cardKey} className="border rounded-md p-3">
+      <div className="flex gap-2 items-center mb-2">
+        <div className="flex-1 bg-gray-50 rounded p-2 text-sm">
+          {getTransformerLabel(transformer)}
+        </div>
+        <Button variant="outline" size="icon" onClick={onRemove}>
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+      {parameterEditor}
+    </div>
+  );
+
+  const renderSelectedTransformers = ({
+    transformers,
+    getCardKey,
+    getInputKey,
+    paramInputs,
+    setParamInputs,
+    onRemoveTransformer,
+    onAddParameter,
+    onRemoveParameter,
+  }: {
+    transformers?: TransformerEntry[];
+    getCardKey: (transformerIndex: number) => string;
+    getInputKey: (transformerIndex: number) => string;
+    paramInputs: ParamInputMap;
+    setParamInputs: Dispatch<SetStateAction<ParamInputMap>>;
+    onRemoveTransformer: (transformerIndex: number) => void;
+    onAddParameter: (
+      transformerIndex: number,
+      paramName: string,
+      paramValue: string
+    ) => void;
+    onRemoveParameter: (transformerIndex: number, paramName: string) => void;
+  }) => {
+    if (!transformers || transformers.length === 0) {
+      return null;
     }
+
+    return (
+      <div className="space-y-2 mt-2">
+        <div className="text-sm font-medium text-gray-700">{t("providers.selected_transformers")}</div>
+        {transformers.map((transformer, transformerIndex) =>
+          renderTransformerCard({
+            cardKey: getCardKey(transformerIndex),
+            transformer,
+            onRemove: () => onRemoveTransformer(transformerIndex),
+            parameterEditor: renderTransformerParameterEditor({
+              transformer,
+              inputKey: getInputKey(transformerIndex),
+              paramInputs,
+              setParamInputs,
+              onAddParameter: (paramName, paramValue) =>
+                onAddParameter(transformerIndex, paramName, paramValue),
+              onRemoveParameter: (paramName) =>
+                onRemoveParameter(transformerIndex, paramName),
+            }),
+          })
+        )}
+      </div>
+    );
+  };
+
+  const ensureTransformerRoot = (provider: Provider) => {
+    if (!provider.transformer) {
+      provider.transformer = { use: [] };
+    }
+    if (!Array.isArray(provider.transformer.use)) {
+      provider.transformer.use = [];
+    }
+    return provider.transformer;
+  };
+
+  const ensureTransformerUse = (
+    provider: Provider,
+    model?: string
+  ): TransformerEntry[] => {
+    const transformerRoot = ensureTransformerRoot(provider) as any;
+    if (!model) {
+      return transformerRoot.use as TransformerEntry[];
+    }
+    if (!transformerRoot[model]) {
+      transformerRoot[model] = { use: [] };
+    }
+    if (!Array.isArray(transformerRoot[model].use)) {
+      transformerRoot[model].use = [];
+    }
+    return transformerRoot[model].use as TransformerEntry[];
+  };
+
+  const getTransformerUse = (
+    provider: Provider,
+    model?: string
+  ): TransformerEntry[] | undefined => {
+    if (!provider.transformer) return undefined;
+    if (!model) return provider.transformer.use as TransformerEntry[];
+    return (provider.transformer as any)[model]?.use as TransformerEntry[] | undefined;
+  };
+
+  const getTransformerLabel = (transformer: TransformerEntry): string => {
+    if (typeof transformer === "string") return transformer;
+    if (Array.isArray(transformer)) return String(transformer[0]);
+    return String(transformer);
+  };
+
+  const getTransformerParams = (transformer: TransformerEntry): TransformerParams => {
+    if (!Array.isArray(transformer) || transformer.length <= 1) {
+      return {};
+    }
+    const paramsCandidate = transformer[1];
+    if (
+      typeof paramsCandidate !== "object" ||
+      paramsCandidate === null ||
+      Array.isArray(paramsCandidate)
+    ) {
+      return {};
+    }
+    return paramsCandidate as TransformerParams;
+  };
+
+  const addTransformerParameterToEntry = (
+    transformer: TransformerEntry,
+    paramName: string,
+    paramValue: string
+  ): TransformerEntry => {
+    if (!Array.isArray(transformer)) {
+      return [transformer, { [paramName]: paramValue }];
+    }
+    const updatedTransformer = [...transformer];
+    const existingParams = getTransformerParams(updatedTransformer as TransformerEntry);
+    const nextParams = { ...existingParams, [paramName]: paramValue };
+
+    if (updatedTransformer.length > 1) {
+      updatedTransformer.splice(1, updatedTransformer.length - 1, nextParams);
+    } else {
+      updatedTransformer.push(nextParams);
+    }
+    return updatedTransformer as TransformerEntry;
+  };
+
+  const removeTransformerParameterFromEntry = (
+    transformer: TransformerEntry,
+    paramName: string
+  ): TransformerEntry => {
+    if (!Array.isArray(transformer) || transformer.length <= 1) {
+      return transformer;
+    }
+    const updatedTransformer = [...transformer];
+    const nextParams = { ...getTransformerParams(updatedTransformer as TransformerEntry) };
+    delete nextParams[paramName];
+
+    if (Object.keys(nextParams).length === 0) {
+      updatedTransformer.splice(1, 1);
+    } else {
+      updatedTransformer.splice(1, updatedTransformer.length - 1, nextParams);
+    }
+
+    return updatedTransformer as TransformerEntry;
+  };
+
+  const addTransformer = (transformerPath: string, model?: string) => {
+    if (!transformerPath) return;
+    updateEditingProviderData((provider) => {
+      const use = ensureTransformerUse(provider, model);
+      use.push(transformerPath);
+    });
+  };
+
+  const removeTransformer = (transformerIndex: number, model?: string) => {
+    updateEditingProviderData((provider) => {
+      const use = getTransformerUse(provider, model);
+      if (!Array.isArray(use)) return;
+
+      use.splice(transformerIndex, 1);
+
+      if (model) {
+        const modelTransformer = (provider.transformer as any)?.[model];
+        if (
+          modelTransformer &&
+          Array.isArray(modelTransformer.use) &&
+          modelTransformer.use.length === 0 &&
+          Object.keys(modelTransformer).length === 1
+        ) {
+          delete (provider.transformer as any)[model];
+        }
+      } else if (
+        provider.transformer &&
+        Array.isArray(provider.transformer.use) &&
+        provider.transformer.use.length === 0 &&
+        Object.keys(provider.transformer).length === 1
+      ) {
+        delete provider.transformer;
+      }
+    });
+  };
+
+  const updateTransformerParameter = (
+    transformerIndex: number,
+    paramName: string,
+    paramValue: string,
+    model?: string
+  ) => {
+    updateEditingProviderData((provider) => {
+      const use = getTransformerUse(provider, model);
+      if (!Array.isArray(use) || use.length <= transformerIndex) {
+        return;
+      }
+
+      use[transformerIndex] = addTransformerParameterToEntry(
+        use[transformerIndex],
+        paramName,
+        paramValue
+      );
+    });
+  };
+
+  const removeTransformerParameter = (
+    transformerIndex: number,
+    paramName: string,
+    model?: string
+  ) => {
+    updateEditingProviderData((provider) => {
+      const use = getTransformerUse(provider, model);
+      if (!Array.isArray(use) || use.length <= transformerIndex) {
+        return;
+      }
+
+      use[transformerIndex] = removeTransformerParameterFromEntry(
+        use[transformerIndex],
+        paramName
+      );
+    });
   };
 
   const handleProviderTransformerChange = (_index: number, transformerPath: string) => {
-    if (!transformerPath || !editingProviderData) return; // Don't add empty transformers
-    
-    const updatedProvider = { ...editingProviderData };
-    
-    if (!updatedProvider.transformer) {
-      updatedProvider.transformer = { use: [] };
-    }
-    
-    // Add transformer to the use array
-    updatedProvider.transformer.use = [...updatedProvider.transformer.use, transformerPath];
-    setEditingProviderData(updatedProvider);
+    addTransformer(transformerPath);
   };
 
   const removeProviderTransformerAtIndex = (_index: number, transformerIndex: number) => {
-    if (!editingProviderData) return;
-    
-    const updatedProvider = { ...editingProviderData };
-    
-    if (updatedProvider.transformer) {
-      const newUseArray = [...updatedProvider.transformer.use];
-      newUseArray.splice(transformerIndex, 1);
-      updatedProvider.transformer.use = newUseArray;
-      
-      // If use array is now empty and no other properties, remove transformer entirely
-      if (newUseArray.length === 0 && Object.keys(updatedProvider.transformer).length === 1) {
-        delete updatedProvider.transformer;
-      }
-    }
-    
-    setEditingProviderData(updatedProvider);
+    removeTransformer(transformerIndex);
   };
 
   const handleModelTransformerChange = (_providerIndex: number, model: string, transformerPath: string) => {
-    if (!transformerPath || !editingProviderData) return; // Don't add empty transformers
-    
-    const updatedProvider = { ...editingProviderData };
-    
-    if (!updatedProvider.transformer) {
-      updatedProvider.transformer = { use: [] };
-    }
-    
-    // Initialize model transformer if it doesn't exist
-    if (!updatedProvider.transformer[model]) {
-      updatedProvider.transformer[model] = { use: [] };
-    }
-    
-    // Add transformer to the use array
-    updatedProvider.transformer[model].use = [...updatedProvider.transformer[model].use, transformerPath];
-    setEditingProviderData(updatedProvider);
+    addTransformer(transformerPath, model);
   };
 
   const removeModelTransformerAtIndex = (_providerIndex: number, model: string, transformerIndex: number) => {
-    if (!editingProviderData) return;
-    
-    const updatedProvider = { ...editingProviderData };
-    
-    if (updatedProvider.transformer && updatedProvider.transformer[model]) {
-      const newUseArray = [...updatedProvider.transformer[model].use];
-      newUseArray.splice(transformerIndex, 1);
-      updatedProvider.transformer[model].use = newUseArray;
-      
-      // If use array is now empty and no other properties, remove model transformer entirely
-      if (newUseArray.length === 0 && Object.keys(updatedProvider.transformer[model]).length === 1) {
-        delete updatedProvider.transformer[model];
-      }
-    }
-    
-    setEditingProviderData(updatedProvider);
+    removeTransformer(transformerIndex, model);
   };
 
 
   const addProviderTransformerParameter = (_providerIndex: number, transformerIndex: number, paramName: string, paramValue: string) => {
-    if (!editingProviderData) return;
-    
-    const updatedProvider = { ...editingProviderData };
-    
-    if (!updatedProvider.transformer) {
-      updatedProvider.transformer = { use: [] };
-    }
-    
-    // Add parameter to the specified transformer in use array
-    if (updatedProvider.transformer.use && updatedProvider.transformer.use.length > transformerIndex) {
-      const targetTransformer = updatedProvider.transformer.use[transformerIndex];
-      
-      // If it's already an array with parameters, update it
-      if (Array.isArray(targetTransformer)) {
-        const transformerArray = [...targetTransformer];
-        // Check if the second element is an object (parameters object)
-        if (transformerArray.length > 1 && typeof transformerArray[1] === 'object' && transformerArray[1] !== null) {
-          // Update the existing parameters object
-          const existingParams = transformerArray[1] as Record<string, unknown>;
-          const paramsObj: Record<string, unknown> = { ...existingParams, [paramName]: paramValue };
-          transformerArray[1] = paramsObj;
-        } else if (transformerArray.length > 1) {
-          // If there are other elements, add the parameters object
-          const paramsObj = { [paramName]: paramValue };
-          transformerArray.splice(1, transformerArray.length - 1, paramsObj);
-        } else {
-          // Add a new parameters object
-          const paramsObj = { [paramName]: paramValue };
-          transformerArray.push(paramsObj);
-        }
-        
-        updatedProvider.transformer.use[transformerIndex] = transformerArray as string | (string | Record<string, unknown> | { max_tokens: number })[];
-      } else {
-        // Convert to array format with parameters
-        const paramsObj = { [paramName]: paramValue };
-        updatedProvider.transformer.use[transformerIndex] = [targetTransformer as string, paramsObj];
-      }
-    }
-    
-    setEditingProviderData(updatedProvider);
+    updateTransformerParameter(transformerIndex, paramName, paramValue);
   };
 
 
   const removeProviderTransformerParameterAtIndex = (_providerIndex: number, transformerIndex: number, paramName: string) => {
-    if (!editingProviderData) return;
-    
-    const updatedProvider = { ...editingProviderData };
-    
-    if (!updatedProvider.transformer?.use || updatedProvider.transformer.use.length <= transformerIndex) {
-      return;
-    }
-    
-    const targetTransformer = updatedProvider.transformer.use[transformerIndex];
-    if (Array.isArray(targetTransformer) && targetTransformer.length > 1) {
-      const transformerArray = [...targetTransformer];
-      // Check if the second element is an object (parameters object)
-      if (typeof transformerArray[1] === 'object' && transformerArray[1] !== null) {
-        const paramsObj = { ...(transformerArray[1] as Record<string, unknown>) };
-        delete paramsObj[paramName];
-        
-        // If the parameters object is now empty, remove it
-        if (Object.keys(paramsObj).length === 0) {
-          transformerArray.splice(1, 1);
-        } else {
-          transformerArray[1] = paramsObj;
-        }
-        
-        updatedProvider.transformer.use[transformerIndex] = transformerArray;
-        setEditingProviderData(updatedProvider);
-      }
-    }
+    removeTransformerParameter(transformerIndex, paramName);
   };
 
   const addModelTransformerParameter = (_providerIndex: number, model: string, transformerIndex: number, paramName: string, paramValue: string) => {
-    if (!editingProviderData) return;
-    
-    const updatedProvider = { ...editingProviderData };
-    
-    if (!updatedProvider.transformer) {
-      updatedProvider.transformer = { use: [] };
-    }
-    
-    if (!updatedProvider.transformer[model]) {
-      updatedProvider.transformer[model] = { use: [] };
-    }
-    
-    // Add parameter to the specified transformer in use array
-    if (updatedProvider.transformer[model].use && updatedProvider.transformer[model].use.length > transformerIndex) {
-      const targetTransformer = updatedProvider.transformer[model].use[transformerIndex];
-      
-      // If it's already an array with parameters, update it
-      if (Array.isArray(targetTransformer)) {
-        const transformerArray = [...targetTransformer];
-        // Check if the second element is an object (parameters object)
-        if (transformerArray.length > 1 && typeof transformerArray[1] === 'object' && transformerArray[1] !== null) {
-          // Update the existing parameters object
-          const existingParams = transformerArray[1] as Record<string, unknown>;
-          const paramsObj: Record<string, unknown> = { ...existingParams, [paramName]: paramValue };
-          transformerArray[1] = paramsObj;
-        } else if (transformerArray.length > 1) {
-          // If there are other elements, add the parameters object
-          const paramsObj = { [paramName]: paramValue };
-          transformerArray.splice(1, transformerArray.length - 1, paramsObj);
-        } else {
-          // Add a new parameters object
-          const paramsObj = { [paramName]: paramValue };
-          transformerArray.push(paramsObj);
-        }
-        
-        updatedProvider.transformer[model].use[transformerIndex] = transformerArray as string | (string | Record<string, unknown> | { max_tokens: number })[];
-      } else {
-        // Convert to array format with parameters
-        const paramsObj = { [paramName]: paramValue };
-        updatedProvider.transformer[model].use[transformerIndex] = [targetTransformer as string, paramsObj];
-      }
-    }
-    
-    setEditingProviderData(updatedProvider);
+    updateTransformerParameter(transformerIndex, paramName, paramValue, model);
   };
 
 
   const removeModelTransformerParameterAtIndex = (_providerIndex: number, model: string, transformerIndex: number, paramName: string) => {
-    if (!editingProviderData) return;
-    
-    const updatedProvider = { ...editingProviderData };
-    
-    if (!updatedProvider.transformer?.[model]?.use || updatedProvider.transformer[model].use.length <= transformerIndex) {
-      return;
-    }
-    
-    const targetTransformer = updatedProvider.transformer[model].use[transformerIndex];
-    if (Array.isArray(targetTransformer) && targetTransformer.length > 1) {
-      const transformerArray = [...targetTransformer];
-      // Check if the second element is an object (parameters object)
-      if (typeof transformerArray[1] === 'object' && transformerArray[1] !== null) {
-        const paramsObj = { ...(transformerArray[1] as Record<string, unknown>) };
-        delete paramsObj[paramName];
-        
-        // If the parameters object is now empty, remove it
-        if (Object.keys(paramsObj).length === 0) {
-          transformerArray.splice(1, 1);
-        } else {
-          transformerArray[1] = paramsObj;
-        }
-        
-        updatedProvider.transformer[model].use[transformerIndex] = transformerArray;
-        setEditingProviderData(updatedProvider);
-      }
-    }
+    removeTransformerParameter(transformerIndex, paramName, model);
   };
 
   const handleAddModel = (_index: number, model: string) => {
-    if (!model.trim() || !editingProviderData) return;
-    
-    const updatedProvider = { ...editingProviderData };
-    
-    // Handle case where provider.models might be null or undefined
-    const models = Array.isArray(updatedProvider.models) ? [...updatedProvider.models] : [];
-    
-    // Check if model already exists
-    if (!models.includes(model.trim())) {
-      models.push(model.trim());
-      updatedProvider.models = models;
-      setEditingProviderData(updatedProvider);
-    }
+    const normalizedModel = model.trim();
+    if (!normalizedModel) return;
+
+    updateEditingProviderData((provider) => {
+      const models = Array.isArray(provider.models) ? [...provider.models] : [];
+      if (models.includes(normalizedModel)) return;
+      models.push(normalizedModel);
+      provider.models = models;
+    });
   };
 
-    const handleTemplateImport = (value: string) => {
+  const handleTemplateImport = (value: string) => {
     if (!value) return;
     try {
-      const selectedTemplate = JSON.parse(value);
+        const selectedTemplate = JSON.parse(value) as Provider;
       if (selectedTemplate) {
         const currentName = editingProviderData?.name;
-        const newProviderData = JSON.parse(JSON.stringify(selectedTemplate));
+        const newProviderData = cloneProviderData(selectedTemplate);
 
         if (!isNewProvider && currentName) {
           newProviderData.name = currentName;
@@ -537,19 +723,12 @@ export function Providers() {
   };
 
   const handleRemoveModel = (_providerIndex: number, modelIndex: number) => {
-    if (!editingProviderData) return;
-    
-    const updatedProvider = { ...editingProviderData };
-    
-    // Handle case where provider.models might be null or undefined
-    const models = Array.isArray(updatedProvider.models) ? [...updatedProvider.models] : [];
-    
-    // Handle case where modelIndex might be out of bounds
-    if (modelIndex >= 0 && modelIndex < models.length) {
+    updateEditingProviderData((provider) => {
+      const models = Array.isArray(provider.models) ? [...provider.models] : [];
+      if (modelIndex < 0 || modelIndex >= models.length) return;
       models.splice(modelIndex, 1);
-      updatedProvider.models = models;
-      setEditingProviderData(updatedProvider);
-    }
+      provider.models = models;
+    });
   };
 
   const editingProvider = editingProviderData || (editingProviderIndex !== null ? validProviders[editingProviderIndex] : null);
@@ -803,130 +982,33 @@ export function Providers() {
                   />
                 </div>
                 
-                {/* Display existing transformers */}
-                {editingProvider.transformer?.use && editingProvider.transformer.use.length > 0 && (
-                  <div className="space-y-2 mt-2">
-                    <div className="text-sm font-medium text-gray-700">{t("providers.selected_transformers")}</div>
-                    {editingProvider.transformer.use.map((transformer: string | (string | Record<string, unknown> | { max_tokens: number })[], transformerIndex: number) => (
-                      <div key={transformerIndex} className="border rounded-md p-3">
-                        <div className="flex gap-2 items-center mb-2">
-                          <div className="flex-1 bg-gray-50 rounded p-2 text-sm">
-                            {typeof transformer === 'string' ? transformer : Array.isArray(transformer) ? String(transformer[0]) : String(transformer)}
-                          </div>
-                          <Button 
-                            variant="outline" 
-                            size="icon"
-                            onClick={() => {
-                              if (editingProviderIndex !== null) {
-                                removeProviderTransformerAtIndex(editingProviderIndex, transformerIndex);
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        
-                        {/* Transformer-specific Parameters */}
-                        <div className="mt-2 pl-4 border-l-2 border-gray-200">
-                          <Label className="text-sm">{t("providers.transformer_parameters")}</Label>
-                          <div className="space-y-2 mt-1">
-                            <div className="flex gap-2">
-                              <Input 
-                                placeholder={t("providers.parameter_name")}
-                                value={providerParamInputs[`provider-${editingProviderIndex}-transformer-${transformerIndex}`]?.name || ""}
-                                onChange={(e) => {
-                                  const key = `provider-${editingProviderIndex}-transformer-${transformerIndex}`;
-                                  setProviderParamInputs(prev => ({
-                                    ...prev,
-                                    [key]: {
-                                      ...prev[key] || {name: "", value: ""},
-                                      name: e.target.value
-                                    }
-                                  }));
-                                }}
-                              />
-                              <Input 
-                                placeholder={t("providers.parameter_value")}
-                                value={providerParamInputs[`provider-${editingProviderIndex}-transformer-${transformerIndex}`]?.value || ""}
-                                onChange={(e) => {
-                                  const key = `provider-${editingProviderIndex}-transformer-${transformerIndex}`;
-                                  setProviderParamInputs(prev => ({
-                                    ...prev,
-                                    [key]: {
-                                      ...prev[key] || {name: "", value: ""},
-                                      value: e.target.value
-                                    }
-                                  }));
-                                }}
-                              />
-                              <Button 
-                                size="sm"
-                                onClick={() => {
-                                  if (editingProviderIndex !== null) {
-                                    const key = `provider-${editingProviderIndex}-transformer-${transformerIndex}`;
-                                    const paramInput = providerParamInputs[key];
-                                    if (paramInput && paramInput.name && paramInput.value) {
-                                      addProviderTransformerParameter(editingProviderIndex, transformerIndex, paramInput.name, paramInput.value);
-                                      setProviderParamInputs(prev => ({
-                                        ...prev,
-                                        [key]: {name: "", value: ""}
-                                      }));
-                                    }
-                                  }
-                                }}
-                              >
-                                <Plus className="h-4 w-4" />
-                              </Button>
-                            </div>
-                            
-                            {/* Display existing parameters for this transformer */}
-                            {(() => {
-                              // Get parameters for this specific transformer
-                              if (!editingProvider.transformer?.use || editingProvider.transformer.use.length <= transformerIndex) {
-                                return null;
-                              }
-                              
-                              const targetTransformer = editingProvider.transformer.use[transformerIndex];
-                              let params = {};
-                              
-                              if (Array.isArray(targetTransformer) && targetTransformer.length > 1) {
-                                // Check if the second element is an object (parameters object)
-                                if (typeof targetTransformer[1] === 'object' && targetTransformer[1] !== null) {
-                                  params = targetTransformer[1] as Record<string, unknown>;
-                                }
-                              }
-                              
-                              return Object.keys(params).length > 0 ? (
-                                <div className="space-y-1">
-                                  {Object.entries(params).map(([key, value]) => (
-                                    <div key={key} className="flex items-center justify-between bg-gray-50 rounded p-2">
-                                      <div className="text-sm">
-                                        <span className="font-medium">{key}:</span> {String(value)}
-                                      </div>
-                                      <Button 
-                                        variant="ghost" 
-                                        size="sm"
-                                        className="h-6 w-6 p-0"
-                                        onClick={() => {
-                                          if (editingProviderIndex !== null) {
-                                            // We need a function to remove parameters from a specific transformer
-                                            removeProviderTransformerParameterAtIndex(editingProviderIndex, transformerIndex, key);
-                                          }
-                                        }}
-                                      >
-                                        <X className="h-3 w-3" />
-                                      </Button>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : null;
-                            })()}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {renderSelectedTransformers({
+                  transformers: editingProvider.transformer?.use,
+                  getCardKey: (transformerIndex) =>
+                    `provider-transformer-${transformerIndex}`,
+                  getInputKey: (transformerIndex) =>
+                    getProviderParamKey(editingProviderIndex, transformerIndex),
+                  paramInputs: providerParamInputs,
+                  setParamInputs: setProviderParamInputs,
+                  onRemoveTransformer: (transformerIndex) =>
+                    removeProviderTransformerAtIndex(
+                      editingProviderIndex,
+                      transformerIndex
+                    ),
+                  onAddParameter: (transformerIndex, paramName, paramValue) =>
+                    addProviderTransformerParameter(
+                      editingProviderIndex,
+                      transformerIndex,
+                      paramName,
+                      paramValue
+                    ),
+                  onRemoveParameter: (transformerIndex, paramName) =>
+                    removeProviderTransformerParameterAtIndex(
+                      editingProviderIndex,
+                      transformerIndex,
+                      paramName
+                    ),
+                })}
               </div>
               
               {/* Model-specific Transformers */}
@@ -957,130 +1039,36 @@ export function Providers() {
                           </div>
                         </div>
                         
-                        {/* Display existing transformers */}
-                        {editingProvider.transformer?.[model]?.use && editingProvider.transformer[model].use.length > 0 && (
-                          <div className="space-y-2 mt-2">
-                            <div className="text-sm font-medium text-gray-700">{t("providers.selected_transformers")}</div>
-                            {editingProvider.transformer[model].use.map((transformer: string | (string | Record<string, unknown> | { max_tokens: number })[], transformerIndex: number) => (
-                              <div key={transformerIndex} className="border rounded-md p-3">
-                                <div className="flex gap-2 items-center mb-2">
-                                  <div className="flex-1 bg-gray-50 rounded p-2 text-sm">
-                                    {typeof transformer === 'string' ? transformer : Array.isArray(transformer) ? String(transformer[0]) : String(transformer)}
-                                  </div>
-                                  <Button 
-                                    variant="outline" 
-                                    size="icon"
-                                    onClick={() => {
-                                      if (editingProviderIndex !== null) {
-                                        removeModelTransformerAtIndex(editingProviderIndex, model, transformerIndex);
-                                      }
-                                    }}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                                
-                                {/* Transformer-specific Parameters */}
-                                <div className="mt-2 pl-4 border-l-2 border-gray-200">
-                                  <Label className="text-sm">{t("providers.transformer_parameters")}</Label>
-                                  <div className="space-y-2 mt-1">
-                                    <div className="flex gap-2">
-                                      <Input 
-                                        placeholder={t("providers.parameter_name")}
-                                        value={modelParamInputs[`model-${editingProviderIndex}-${model}-transformer-${transformerIndex}`]?.name || ""}
-                                        onChange={(e) => {
-                                          const key = `model-${editingProviderIndex}-${model}-transformer-${transformerIndex}`;
-                                          setModelParamInputs(prev => ({
-                                            ...prev,
-                                            [key]: {
-                                              ...prev[key] || {name: "", value: ""},
-                                              name: e.target.value
-                                            }
-                                          }));
-                                        }}
-                                      />
-                                      <Input 
-                                        placeholder={t("providers.parameter_value")}
-                                        value={modelParamInputs[`model-${editingProviderIndex}-${model}-transformer-${transformerIndex}`]?.value || ""}
-                                        onChange={(e) => {
-                                          const key = `model-${editingProviderIndex}-${model}-transformer-${transformerIndex}`;
-                                          setModelParamInputs(prev => ({
-                                            ...prev,
-                                            [key]: {
-                                              ...prev[key] || {name: "", value: ""},
-                                              value: e.target.value
-                                            }
-                                          }));
-                                        }}
-                                      />
-                                      <Button 
-                                        size="sm"
-                                        onClick={() => {
-                                          if (editingProviderIndex !== null) {
-                                            const key = `model-${editingProviderIndex}-${model}-transformer-${transformerIndex}`;
-                                            const paramInput = modelParamInputs[key];
-                                            if (paramInput && paramInput.name && paramInput.value) {
-                                              addModelTransformerParameter(editingProviderIndex, model, transformerIndex, paramInput.name, paramInput.value);
-                                              setModelParamInputs(prev => ({
-                                                ...prev,
-                                                [key]: {name: "", value: ""}
-                                              }));
-                                            }
-                                          }
-                                        }}
-                                      >
-                                        <Plus className="h-4 w-4" />
-                                      </Button>
-                                    </div>
-                                    
-                                    {/* Display existing parameters for this transformer */}
-                                    {(() => {
-                                      // Get parameters for this specific transformer
-                                      if (!editingProvider.transformer?.[model]?.use || editingProvider.transformer[model].use.length <= transformerIndex) {
-                                        return null;
-                                      }
-                                      
-                                      const targetTransformer = editingProvider.transformer[model].use[transformerIndex];
-                                      let params = {};
-                                      
-                                      if (Array.isArray(targetTransformer) && targetTransformer.length > 1) {
-                                        // Check if the second element is an object (parameters object)
-                                        if (typeof targetTransformer[1] === 'object' && targetTransformer[1] !== null) {
-                                          params = targetTransformer[1] as Record<string, unknown>;
-                                        }
-                                      }
-                                      
-                                      return Object.keys(params).length > 0 ? (
-                                        <div className="space-y-1">
-                                          {Object.entries(params).map(([key, value]) => (
-                                            <div key={key} className="flex items-center justify-between bg-gray-50 rounded p-2">
-                                              <div className="text-sm">
-                                                <span className="font-medium">{key}:</span> {String(value)}
-                                              </div>
-                                              <Button 
-                                                variant="ghost" 
-                                                size="sm"
-                                                className="h-6 w-6 p-0"
-                                                onClick={() => {
-                                                  if (editingProviderIndex !== null) {
-                                                    // We need a function to remove parameters from a specific transformer
-                                                    removeModelTransformerParameterAtIndex(editingProviderIndex, model, transformerIndex, key);
-                                                  }
-                                                }}
-                                              >
-                                                <X className="h-3 w-3" />
-                                              </Button>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ) : null;
-                                    })()}
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                        {renderSelectedTransformers({
+                          transformers: editingProvider.transformer?.[model]?.use,
+                          getCardKey: (transformerIndex) =>
+                            `model-${model}-transformer-${transformerIndex}`,
+                          getInputKey: (transformerIndex) =>
+                            getModelParamKey(editingProviderIndex, model, transformerIndex),
+                          paramInputs: modelParamInputs,
+                          setParamInputs: setModelParamInputs,
+                          onRemoveTransformer: (transformerIndex) =>
+                            removeModelTransformerAtIndex(
+                              editingProviderIndex,
+                              model,
+                              transformerIndex
+                            ),
+                          onAddParameter: (transformerIndex, paramName, paramValue) =>
+                            addModelTransformerParameter(
+                              editingProviderIndex,
+                              model,
+                              transformerIndex,
+                              paramName,
+                              paramValue
+                            ),
+                          onRemoveParameter: (transformerIndex, paramName) =>
+                            removeModelTransformerParameterAtIndex(
+                              editingProviderIndex,
+                              model,
+                              transformerIndex,
+                              paramName
+                            ),
+                        })}
                       </div>
                     ))}
                   </div>

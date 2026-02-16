@@ -18,94 +18,135 @@ export class ProviderService {
   }
 
   private initializeCustomProviders() {
-    const providersConfig =
-      this.configService.get<ConfigProvider[]>("providers");
+    const providersConfig = this.configService.get<ConfigProvider[]>("providers");
     if (providersConfig && Array.isArray(providersConfig)) {
       this.initializeFromProvidersArray(providersConfig);
-      return;
     }
   }
 
+  private isValidProviderConfig(providerConfig: ConfigProvider): boolean {
+    if (
+      !providerConfig.name ||
+      !providerConfig.api_base_url ||
+      (!providerConfig.api_key && providerConfig.auth_type !== "oauth")
+    ) {
+      return false;
+    }
+
+    if (providerConfig.auth_type === "oauth" && !providerConfig.oauth_provider) {
+      this.logger.error(
+        `Provider ${providerConfig.name}: auth_type is 'oauth' but oauth_provider is not specified`
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  private resolveTransformerInstance(
+    transformerConfig: string | any[]
+  ): InstanceType<TransformerConstructor> | undefined {
+    if (Array.isArray(transformerConfig) && typeof transformerConfig[0] === "string") {
+      const Constructor = this.transformerService.getTransformer(transformerConfig[0]);
+      if (Constructor) {
+        return new (Constructor as TransformerConstructor)(transformerConfig[1]);
+      }
+      return undefined;
+    }
+
+    if (typeof transformerConfig === "string") {
+      const transformerInstance = this.transformerService.getTransformer(transformerConfig);
+      if (typeof transformerInstance === "function") {
+        return new transformerInstance();
+      }
+      return transformerInstance;
+    }
+
+    return undefined;
+  }
+
+  private resolveTransformerUse(
+    useConfig?: string[] | Array<any>[]
+  ): InstanceType<TransformerConstructor>[] | undefined {
+    if (!Array.isArray(useConfig)) {
+      return undefined;
+    }
+
+    const resolved = useConfig
+      .map((item) => this.resolveTransformerInstance(item))
+      .filter((item): item is InstanceType<TransformerConstructor> => typeof item !== "undefined");
+
+    return resolved.length > 0 ? resolved : undefined;
+  }
+
+  private buildTransformerConfig(
+    providerConfig: ConfigProvider
+  ): LLMProvider["transformer"] | undefined {
+    if (!providerConfig.transformer) {
+      return undefined;
+    }
+
+    const transformer: LLMProvider["transformer"] = {};
+    const defaultUse = this.resolveTransformerUse(providerConfig.transformer.use);
+    if (defaultUse) {
+      transformer.use = defaultUse;
+    }
+
+    for (const [key, value] of Object.entries(providerConfig.transformer)) {
+      if (key === "use") continue;
+      const modelUse = this.resolveTransformerUse(value?.use);
+      if (modelUse) {
+        transformer[key] = { use: modelUse };
+      }
+    }
+
+    return Object.keys(transformer).length > 0 ? transformer : undefined;
+  }
+
+  private createModelRoute(providerName: string, model: string): ModelRoute {
+    return {
+      provider: providerName,
+      model,
+      fullModel: `${providerName},${model}`,
+    };
+  }
+
+  private rebuildModelRoutes(): void {
+    this.modelRoutes.clear();
+
+    this.providers.forEach((provider) => {
+      provider.models.forEach((model) => {
+        const route = this.createModelRoute(provider.name, model);
+        this.modelRoutes.set(route.fullModel, route);
+        if (!this.modelRoutes.has(model)) {
+          this.modelRoutes.set(model, route);
+        }
+      });
+    });
+  }
+
   private initializeFromProvidersArray(providersConfig: ConfigProvider[]) {
-    providersConfig.forEach((providerConfig: ConfigProvider) => {
+    for (const providerConfig of providersConfig) {
       try {
-        // Require name and base URL for all providers
-        // For auth: require either api_key OR auth_type: 'oauth'
-        if (
-          !providerConfig.name ||
-          !providerConfig.api_base_url ||
-          (!providerConfig.api_key && providerConfig.auth_type !== 'oauth')
-        ) {
-          return;
-        }
-
-        // Validate OAuth configuration
-        if (providerConfig.auth_type === 'oauth' && !providerConfig.oauth_provider) {
-          this.logger.error(`Provider ${providerConfig.name}: auth_type is 'oauth' but oauth_provider is not specified`);
-          return;
-        }
-
-        const transformer: LLMProvider["transformer"] = {}
-
-        if (providerConfig.transformer) {
-          Object.keys(providerConfig.transformer).forEach(key => {
-            if (key === 'use') {
-              if (Array.isArray(providerConfig.transformer.use)) {
-                transformer.use = providerConfig.transformer.use.map((transformer) => {
-                  if (Array.isArray(transformer) && typeof transformer[0] === 'string') {
-                    const Constructor = this.transformerService.getTransformer(transformer[0]);
-                    if (Constructor) {
-                      return new (Constructor as TransformerConstructor)(transformer[1]);
-                    }
-                  }
-                  if (typeof transformer === 'string') {
-                    const transformerInstance = this.transformerService.getTransformer(transformer);
-                    if (typeof transformerInstance === 'function') {
-                      return new transformerInstance();
-                    }
-                    return transformerInstance;
-                  }
-                }).filter((transformer) => typeof transformer !== 'undefined');
-              }
-            } else {
-              if (Array.isArray(providerConfig.transformer[key]?.use)) {
-                transformer[key] = {
-                  use: providerConfig.transformer[key].use.map((transformer) => {
-                    if (Array.isArray(transformer) && typeof transformer[0] === 'string') {
-                      const Constructor = this.transformerService.getTransformer(transformer[0]);
-                      if (Constructor) {
-                        return new (Constructor as TransformerConstructor)(transformer[1]);
-                      }
-                    }
-                    if (typeof transformer === 'string') {
-                      const transformerInstance = this.transformerService.getTransformer(transformer);
-                      if (typeof transformerInstance === 'function') {
-                        return new transformerInstance();
-                      }
-                      return transformerInstance;
-                    }
-                  }).filter((transformer) => typeof transformer !== 'undefined')
-                }
-              }
-            }
-          })
+        if (!this.isValidProviderConfig(providerConfig)) {
+          continue;
         }
 
         this.registerProvider({
           name: providerConfig.name,
           baseUrl: providerConfig.api_base_url,
-          apiKey: providerConfig.api_key || '',
+          apiKey: providerConfig.api_key || "",
           models: providerConfig.models || [],
           authType: providerConfig.auth_type,
           oauthProvider: providerConfig.oauth_provider,
-          transformer: providerConfig.transformer ? transformer : undefined,
+          transformer: this.buildTransformerConfig(providerConfig),
         });
 
         this.logger.info(`${providerConfig.name} provider registered`);
       } catch (error) {
         this.logger.error(`${providerConfig.name} provider registered error: ${error}`);
       }
-    });
+    }
   }
 
   registerProvider(request: RegisterProviderRequest): LLMProvider {
@@ -114,19 +155,7 @@ export class ProviderService {
     };
 
     this.providers.set(provider.name, provider);
-
-    request.models.forEach((model) => {
-      const fullModel = `${provider.name},${model}`;
-      const route: ModelRoute = {
-        provider: provider.name,
-        model,
-        fullModel,
-      };
-      this.modelRoutes.set(fullModel, route);
-      if (!this.modelRoutes.has(model)) {
-        this.modelRoutes.set(model, route);
-      }
-    });
+    this.rebuildModelRoutes();
 
     return provider;
   }
@@ -155,27 +184,7 @@ export class ProviderService {
     };
 
     this.providers.set(id, updatedProvider);
-
-    if (updates.models) {
-      provider.models.forEach((model) => {
-        const fullModel = `${provider.name},${model}`;
-        this.modelRoutes.delete(fullModel);
-        this.modelRoutes.delete(model);
-      });
-
-      updates.models.forEach((model) => {
-        const fullModel = `${provider.name},${model}`;
-        const route: ModelRoute = {
-          provider: provider.name,
-          model,
-          fullModel,
-        };
-        this.modelRoutes.set(fullModel, route);
-        if (!this.modelRoutes.has(model)) {
-          this.modelRoutes.set(model, route);
-        }
-      });
-    }
+    this.rebuildModelRoutes();
 
     return updatedProvider;
   }
@@ -186,17 +195,13 @@ export class ProviderService {
       return false;
     }
 
-    provider.models.forEach((model) => {
-      const fullModel = `${provider.name},${model}`;
-      this.modelRoutes.delete(fullModel);
-      this.modelRoutes.delete(model);
-    });
-
     this.providers.delete(id);
+    this.rebuildModelRoutes();
     return true;
   }
 
   toggleProvider(name: string, enabled: boolean): boolean {
+    void enabled;
     const provider = this.providers.get(name);
     if (!provider) {
       return false;
@@ -235,24 +240,6 @@ export class ProviderService {
 
   getModelRoutes(): ModelRoute[] {
     return Array.from(this.modelRoutes.values());
-  }
-
-  private parseTransformerConfig(transformerConfig: any): any {
-    if (!transformerConfig) return {};
-
-    if (Array.isArray(transformerConfig)) {
-      return transformerConfig.reduce((acc, item) => {
-        if (Array.isArray(item)) {
-          const [name, config = {}] = item;
-          acc[name] = config;
-        } else {
-          acc[item] = {};
-        }
-        return acc;
-      }, {});
-    }
-
-    return transformerConfig;
   }
 
   async getAvailableModels(): Promise<{

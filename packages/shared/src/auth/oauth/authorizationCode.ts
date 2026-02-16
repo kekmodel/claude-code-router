@@ -7,6 +7,7 @@ import { createServer, type Server } from "node:http";
 import { randomBytes, createHash } from "node:crypto";
 import type { OAuthProviderConfig, OAuthTokenResponse, PKCEPair, OAuthToken } from "../types";
 import { saveToken, calculateExpiry } from "../tokenStore";
+import { postOAuthForm, buildOAuthFormParams } from "./http";
 
 // Track active flows per provider to prevent state mismatch and port conflicts
 interface ActiveFlow {
@@ -14,12 +15,18 @@ interface ActiveFlow {
   authUrl: string;
   waitForCallback: () => Promise<string>;
   pkce: PKCEPair;
-  state: string;
   timeout: ReturnType<typeof setTimeout>;
 }
 const activeFlows = new Map<string, ActiveFlow>();
+const activeLogins = new Map<string, Promise<OAuthToken>>();
 
 const FLOW_TIMEOUT_MS = 5 * 60 * 1000;
+
+interface CallbackConfig {
+  port: number;
+  callbackPath: string;
+  redirectUri: string;
+}
 
 function cleanupFlow(providerName: string): void {
   const flow = activeFlows.get(providerName);
@@ -36,6 +43,14 @@ export function generatePKCE(): PKCEPair {
     .update(codeVerifier)
     .digest("base64url");
   return { codeVerifier, codeChallenge };
+}
+
+function resolveCallbackConfig(config: OAuthProviderConfig, redirectUri?: string): CallbackConfig {
+  const port = config.callbackPort || 8085;
+  const callbackPath = config.callbackPath || "/callback";
+  const host = config.callbackHost || "localhost";
+  const resolvedRedirectUri = redirectUri || `http://${host}:${port}${callbackPath}`;
+  return { port, callbackPath, redirectUri: resolvedRedirectUri };
 }
 
 /**
@@ -73,12 +88,8 @@ export async function startAuthCodeFlow(
     cleanupFlow(config.name);
   }
 
-  const port = config.callbackPort || 8085;
-  const callbackPath = config.callbackPath || "/callback";
-  const host = config.callbackHost || "localhost";
-  const redirectUri = `http://${host}:${port}${callbackPath}`;
-
-  const params = new URLSearchParams({
+  const { port, callbackPath, redirectUri } = resolveCallbackConfig(config);
+  const params = buildOAuthFormParams({
     client_id: config.clientId,
     response_type: "code",
     redirect_uri: redirectUri,
@@ -161,7 +172,7 @@ export async function startAuthCodeFlow(
   };
 
   const timeout = setTimeout(() => cleanupFlow(config.name), FLOW_TIMEOUT_MS);
-  activeFlows.set(config.name, { server, authUrl, waitForCallback, pkce, state, timeout });
+  activeFlows.set(config.name, { server, authUrl, waitForCallback, pkce, timeout });
 
   return { authUrl, waitForCallback, server, pkce };
 }
@@ -192,19 +203,31 @@ export async function startAuthCodeLogin(
   return {
     authUrl,
     waitForAuth: async () => {
-      const code = await waitForCallback();
-      const tokens = await exchangeCodeForToken(config, code, activePkce.codeVerifier);
+      const existingLogin = activeLogins.get(providerName);
+      if (existingLogin) {
+        return existingLogin;
+      }
 
-      const oauthToken: OAuthToken = {
-        type: "oauth",
-        access: tokens.access_token,
-        refresh: tokens.refresh_token || "",
-        expires: calculateExpiry(tokens.expires_in),
-        ...(options?.onTokensReceived ? await options.onTokensReceived(tokens) : {}),
-      };
+      const loginPromise = (async () => {
+        const code = await waitForCallback();
+        const tokens = await exchangeCodeForToken(config, code, activePkce.codeVerifier);
 
-      await saveToken(providerName, oauthToken);
-      return oauthToken;
+        const oauthToken: OAuthToken = {
+          type: "oauth",
+          access: tokens.access_token,
+          refresh: tokens.refresh_token || "",
+          expires: calculateExpiry(tokens.expires_in),
+          ...(options?.onTokensReceived ? await options.onTokensReceived(tokens) : {}),
+        };
+
+        await saveToken(providerName, oauthToken);
+        return oauthToken;
+      })().finally(() => {
+        activeLogins.delete(providerName);
+      });
+
+      activeLogins.set(providerName, loginPromise);
+      return loginPromise;
     },
   };
 }
@@ -215,40 +238,19 @@ export async function exchangeCodeForToken(
   codeVerifier: string,
   redirectUri?: string
 ): Promise<OAuthTokenResponse> {
-  const port = config.callbackPort || 8085;
-  const callbackPath = config.callbackPath || "/callback";
-  const host = config.callbackHost || "localhost";
-  const callbackUri = redirectUri || `http://${host}:${port}${callbackPath}`;
-
-  const params = new URLSearchParams({
-    client_id: config.clientId,
-    ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
-    grant_type: "authorization_code",
-    code,
-    redirect_uri: callbackUri,
-    code_verifier: codeVerifier,
-  });
-
-  const response = await fetch(config.tokenUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-      ...(config.extraHeaders || {}),
+  const { redirectUri: callbackUri } = resolveCallbackConfig(config, redirectUri);
+  return postOAuthForm<OAuthTokenResponse>({
+    url: config.tokenUrl,
+    params: {
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: callbackUri,
+      code_verifier: codeVerifier,
     },
-    body: params.toString(),
+    extraHeaders: config.extraHeaders,
+    requestErrorPrefix: "Token exchange failed",
+    oauthErrorPrefix: "Token exchange error",
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Token exchange failed: ${response.status} ${errorText}`);
-  }
-
-  const data = (await response.json()) as OAuthTokenResponse;
-
-  if (data.error) {
-    throw new Error(`Token exchange error: ${data.error} - ${data.error_description || ""}`);
-  }
-
-  return data;
 }

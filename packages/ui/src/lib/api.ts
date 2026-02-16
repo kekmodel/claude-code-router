@@ -51,8 +51,15 @@ class ApiClient {
     this.tempApiKey = tempApiKey;
   }
 
+  private handleUnauthorized<T>(): Promise<T> {
+    localStorage.removeItem('apiKey');
+    window.dispatchEvent(new CustomEvent('unauthorized'));
+    // Prevent further execution paths in callers that expect a resolved response
+    return new Promise(() => {}) as Promise<T>;
+  }
+
   // Create headers with API key authentication
-  private createHeaders(contentType: string = 'application/json'): HeadersInit {
+  private createHeaders(contentType: string | null = 'application/json'): HeadersInit {
     const headers: Record<string, string> = {
       'Accept': 'application/json',
     };
@@ -72,14 +79,18 @@ class ApiClient {
   }
 
   // Generic fetch wrapper with base URL and authentication
-  private async apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  private async apiFetch<T>(
+    endpoint: string,
+    options: RequestInit & { contentType?: string | null } = {}
+  ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
+    const { contentType = 'application/json', ...requestOptions } = options;
 
     const config: RequestInit = {
-      ...options,
+      ...requestOptions,
       headers: {
-        ...this.createHeaders(),
-        ...options.headers,
+        ...this.createHeaders(contentType),
+        ...requestOptions.headers,
       },
     };
 
@@ -88,14 +99,7 @@ class ApiClient {
 
       // Handle 401 Unauthorized responses
       if (response.status === 401) {
-        // Remove API key when it's invalid
-        localStorage.removeItem('apiKey');
-        // Redirect to login page if not already there
-        // For memory router, we need to use the router instance
-        // We'll dispatch a custom event that the app can listen to
-        window.dispatchEvent(new CustomEvent('unauthorized'));
-        // Return a promise that never resolves to prevent further execution
-        return new Promise(() => {}) as Promise<T>;
+        return this.handleUnauthorized<T>();
       }
 
       if (!response.ok) {
@@ -271,37 +275,11 @@ class ApiClient {
     if (name) {
       formData.append('name', name);
     }
-
-    const url = `${this.baseUrl}/presets/upload`;
-
-    const headers: Record<string, string> = {
-      'Accept': 'application/json',
-    };
-
-    // Use temp API key if available, otherwise use regular API key
-    if (this.tempApiKey) {
-      headers['X-Temp-API-Key'] = this.tempApiKey;
-    } else if (this.apiKey) {
-      headers['X-API-Key'] = this.apiKey;
-    }
-
-    const response = await fetch(url, {
+    return this.apiFetch<any>('/presets/upload', {
       method: 'POST',
-      headers,
       body: formData,
+      contentType: null,
     });
-
-    if (response.status === 401) {
-      localStorage.removeItem('apiKey');
-      window.dispatchEvent(new CustomEvent('unauthorized'));
-      return new Promise(() => {}) as any;
-    }
-
-    if (!response.ok) {
-      throw new Error(`Failed to upload preset: ${response.status} ${response.statusText}`);
-    }
-
-    return response.json();
   }
 
   // Apply preset (configure sensitive fields)

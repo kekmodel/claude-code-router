@@ -134,13 +134,11 @@ async function getServer(options: RunOptions = {}) {
   const providers = config.Providers || config.providers || [];
   const hasProviders = providers && providers.length > 0;
 
-  let HOST = config.HOST || "127.0.0.1";
+  const configuredHost = config.HOST || "127.0.0.1";
+  let HOST = configuredHost;
 
   if (hasProviders) {
-    HOST = config.HOST;
-    if (!config.APIKEY) {
-      HOST = "127.0.0.1";
-    }
+    HOST = config.APIKEY ? configuredHost : "127.0.0.1";
   } else {
     // When no providers are configured, listen on 0.0.0.0 without authentication
     HOST = "0.0.0.0";
@@ -151,7 +149,7 @@ async function getServer(options: RunOptions = {}) {
 
   // Use port from environment variable if set (for background process)
   const servicePort = process.env.SERVICE_PORT
-    ? parseInt(process.env.SERVICE_PORT)
+    ? parseInt(process.env.SERVICE_PORT, 10)
     : port;
 
   // Configure logger based on config settings or external options

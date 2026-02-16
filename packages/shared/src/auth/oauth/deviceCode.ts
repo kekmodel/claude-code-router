@@ -4,6 +4,7 @@
  */
 
 import type { OAuthProviderConfig, DeviceCodeResponse, OAuthTokenResponse } from "../types";
+import { buildOAuthFormParams, buildOAuthHeaders, postOAuthForm } from "./http";
 
 export async function requestDeviceCode(
   config: OAuthProviderConfig
@@ -12,28 +13,16 @@ export async function requestDeviceCode(
     throw new Error(`Device code URL not configured for provider: ${config.name}`);
   }
 
-  const params = new URLSearchParams({
-    client_id: config.clientId,
-    ...(config.scopes?.length ? { scope: config.scopes.join(" ") } : {}),
-    ...(config.extraParams || {}),
-  });
-
-  const response = await fetch(config.deviceCodeUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-      ...(config.extraHeaders || {}),
+  return postOAuthForm<DeviceCodeResponse>({
+    url: config.deviceCodeUrl,
+    params: {
+      client_id: config.clientId,
+      scope: config.scopes?.length ? config.scopes.join(" ") : undefined,
+      ...(config.extraParams || {}),
     },
-    body: params.toString(),
+    extraHeaders: config.extraHeaders,
+    requestErrorPrefix: "Failed to request device code",
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to request device code: ${response.status} ${errorText}`);
-  }
-
-  return response.json() as Promise<DeviceCodeResponse>;
 }
 
 export async function pollForDeviceToken(
@@ -51,7 +40,7 @@ export async function pollForDeviceToken(
 
     if (onPoll) onPoll();
 
-    const params = new URLSearchParams({
+    const params = buildOAuthFormParams({
       client_id: config.clientId,
       device_code: deviceCode,
       grant_type: "urn:ietf:params:oauth:grant-type:device_code",
@@ -60,11 +49,7 @@ export async function pollForDeviceToken(
 
     const response = await fetch(config.tokenUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
-        ...(config.extraHeaders || {}),
-      },
+      headers: buildOAuthHeaders(config.extraHeaders),
       body: params.toString(),
     });
 

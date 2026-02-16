@@ -134,6 +134,46 @@ function parseRouterModel(modelStr: string): { model: string; reasoningLevel?: s
   return { model: modelStr };
 }
 
+function toScenarioResult(
+  modelStr: string,
+  scenarioType: RouterScenarioType
+): { model: string; scenarioType: RouterScenarioType; reasoningLevel?: string } {
+  const parsed = parseRouterModel(modelStr);
+  return {
+    model: parsed.model,
+    scenarioType,
+    reasoningLevel: parsed.reasoningLevel,
+  };
+}
+
+function resolveExplicitModel(model: string, providers: any[]): string {
+  const [providerName, modelName] = model.split(",");
+  const matchedProvider = providers.find(
+    (provider: any) => provider.name.toLowerCase() === providerName.toLowerCase()
+  );
+  const matchedModel = matchedProvider?.models?.find(
+    (providerModel: any) => providerModel.toLowerCase() === modelName?.toLowerCase()
+  );
+  return matchedProvider && matchedModel
+    ? `${matchedProvider.name},${matchedModel}`
+    : model;
+}
+
+function extractSubagentModel(system: any[]): string | null {
+  if (system.length <= 1 || !system[1]?.text?.startsWith("<CCR-SUBAGENT-MODEL>")) {
+    return null;
+  }
+  const matched = system[1].text.match(/<CCR-SUBAGENT-MODEL>(.*?)<\/CCR-SUBAGENT-MODEL>/s);
+  if (!matched) {
+    return null;
+  }
+  system[1].text = system[1].text.replace(
+    `<CCR-SUBAGENT-MODEL>${matched[1]}</CCR-SUBAGENT-MODEL>`,
+    ""
+  );
+  return matched[1];
+}
+
 const getUseModel = async (
   req: any,
   tokenCount: number,
@@ -144,18 +184,11 @@ const getUseModel = async (
   const providers = configService.get<any[]>("providers") || [];
   const Router = projectSpecificRouter || configService.get("Router");
 
-  if (req.body.model.includes(",")) {
-    const [provider, model] = req.body.model.split(",");
-    const finalProvider = providers.find(
-      (p: any) => p.name.toLowerCase() === provider
-    );
-    const finalModel = finalProvider?.models?.find(
-      (m: any) => m.toLowerCase() === model
-    );
-    if (finalProvider && finalModel) {
-      return { model: `${finalProvider.name},${finalModel}`, scenarioType: 'default' };
-    }
-    return { model: req.body.model, scenarioType: 'default' };
+  if (typeof req.body.model === "string" && req.body.model.includes(",")) {
+    return {
+      model: resolveExplicitModel(req.body.model, providers),
+      scenarioType: "default",
+    };
   }
 
   // if tokenCount is greater than the configured threshold, use the long context model
@@ -169,23 +202,11 @@ const getUseModel = async (
     req.log.info(
       `Using long context model due to token count: ${tokenCount}, threshold: ${longContextThreshold}`
     );
-    const parsed = parseRouterModel(Router.longContext);
-    return { model: parsed.model, scenarioType: 'longContext', reasoningLevel: parsed.reasoningLevel };
+    return toScenarioResult(Router.longContext, "longContext");
   }
-  if (
-    req.body?.system?.length > 1 &&
-    req.body?.system[1]?.text?.startsWith("<CCR-SUBAGENT-MODEL>")
-  ) {
-    const model = req.body?.system[1].text.match(
-      /<CCR-SUBAGENT-MODEL>(.*?)<\/CCR-SUBAGENT-MODEL>/s
-    );
-    if (model) {
-      req.body.system[1].text = req.body.system[1].text.replace(
-        `<CCR-SUBAGENT-MODEL>${model[1]}</CCR-SUBAGENT-MODEL>`,
-        ""
-      );
-      return { model: model[1], scenarioType: 'default' };
-    }
+  const subagentModel = extractSubagentModel(req.body?.system || []);
+  if (subagentModel) {
+    return { model: subagentModel, scenarioType: "default" };
   }
   // Use the background model for any Claude Haiku variant
   const globalRouter = configService.get("Router");
@@ -195,25 +216,21 @@ const getUseModel = async (
     globalRouter?.background
   ) {
     req.log.info(`Using background model for ${req.body.model}`);
-    const parsedBg = parseRouterModel(globalRouter.background);
-    return { model: parsedBg.model, scenarioType: 'background', reasoningLevel: parsedBg.reasoningLevel };
+    return toScenarioResult(globalRouter.background, "background");
   }
   // Think (Plan Mode) takes priority — reasoning capability matters more than web search tool support
   if (req.body.thinking && Router?.think) {
     req.log.info(`Using think model for ${req.body.thinking}`);
-    const parsedThink = parseRouterModel(Router.think);
-    return { model: parsedThink.model, scenarioType: 'think', reasoningLevel: parsedThink.reasoningLevel };
+    return toScenarioResult(Router.think, "think");
   }
   if (
     Array.isArray(req.body.tools) &&
     req.body.tools.some((tool: any) => tool.type?.startsWith("web_search")) &&
     Router?.webSearch
   ) {
-    const parsedWs = parseRouterModel(Router.webSearch);
-    return { model: parsedWs.model, scenarioType: 'webSearch', reasoningLevel: parsedWs.reasoningLevel };
+    return toScenarioResult(Router.webSearch, "webSearch");
   }
-  const parsedDefault = parseRouterModel(Router?.default);
-  return { model: parsedDefault.model, scenarioType: 'default', reasoningLevel: parsedDefault.reasoningLevel };
+  return toScenarioResult(Router?.default, "default");
 };
 
 export interface RouterContext {

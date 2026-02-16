@@ -46,13 +46,20 @@ Examples:
   ccr auth status
 `;
 
-// Auth Code provider configurations (Copilot uses Device Code Flow separately)
-const AUTH_CODE_PROVIDERS: Record<string, {
+type AuthCodeLoginResult = {
+  authUrl: string;
+  waitForAuth: () => Promise<unknown>;
+};
+
+type AuthCodeProviderConfig = {
   label: string;
-  startLogin: () => Promise<{ authUrl: string; waitForAuth: () => Promise<any> }>;
+  startLogin: () => Promise<AuthCodeLoginResult>;
   description?: string;
   configExample: string;
-}> = {
+};
+
+// Auth Code provider configurations (Copilot uses Device Code Flow separately)
+const AUTH_CODE_PROVIDERS: Record<string, AuthCodeProviderConfig> = {
   codex: {
     label: "OpenAI Codex",
     startLogin: startCodexLogin,
@@ -97,6 +104,15 @@ const AUTH_CODE_PROVIDERS: Record<string, {
   },
 };
 
+function isHelpFlag(value?: string): boolean {
+  return !value || value === "--help" || value === "-h";
+}
+
+function printProviderUsage(action: "login" | "logout"): void {
+  console.log(`Usage: ccr auth ${action} <provider>\n`);
+  console.log("Available providers:", getAvailableOAuthProviders().join(", "));
+}
+
 /**
  * Read server connection config for API calls
  */
@@ -108,6 +124,22 @@ async function getServerFetchConfig(): Promise<{ port: number; headers: Record<s
     port,
     headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
   };
+}
+
+function printBrowserInstructions(url: string): void {
+  console.log("Opening browser for authentication...\n");
+  openBrowser(url);
+  console.log("If the browser didn't open, visit:");
+  console.log(`  ${url}\n`);
+  console.log("Waiting for authorization...");
+}
+
+async function printAuthSuccess(providerName: string): Promise<void> {
+  const token = await getToken(providerName);
+  console.log("\nAuthentication successful!");
+  if (token?.type === "oauth") {
+    console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
+  }
 }
 
 /**
@@ -166,33 +198,18 @@ async function pollAuthStatus(provider: string, timeoutMs = 300_000): Promise<vo
  */
 async function loginWithAuthCode(
   providerName: string,
-  startLogin: () => Promise<{ authUrl: string; waitForAuth: () => Promise<any> }>
+  startLogin: () => Promise<AuthCodeLoginResult>
 ): Promise<void> {
   const serverAuthUrl = await tryServerLogin(providerName);
   if (serverAuthUrl) {
-    console.log("Opening browser for authentication...\n");
-    openBrowser(serverAuthUrl);
-    console.log("If the browser didn't open, visit:");
-    console.log(`  ${serverAuthUrl}\n`);
-    console.log("Waiting for authorization...");
+    printBrowserInstructions(serverAuthUrl);
     await pollAuthStatus(providerName);
   } else {
     const { authUrl, waitForAuth } = await startLogin();
-    console.log("Opening browser for authentication...\n");
-    openBrowser(authUrl);
-    console.log("If the browser didn't open, visit:");
-    console.log(`  ${authUrl}\n`);
-    console.log("Waiting for authorization...");
+    printBrowserInstructions(authUrl);
     await waitForAuth();
   }
-
-  const token = await getToken(providerName);
-  if (token && token.type === "oauth") {
-    console.log("\nAuthentication successful!");
-    console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
-  } else {
-    console.log("\nAuthentication successful!");
-  }
+  await printAuthSuccess(providerName);
 }
 
 /**
@@ -202,24 +219,22 @@ export async function handleAuthCommand(args: string[]): Promise<void> {
   const subcommand = args[0];
   const provider = args[1];
 
-  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+  if (isHelpFlag(subcommand)) {
     console.log(AUTH_HELP);
     return;
   }
 
   switch (subcommand) {
     case "login":
-      if (!provider || provider === "--help" || provider === "-h") {
-        console.log("Usage: ccr auth login <provider>\n");
-        console.log("Available providers:", getAvailableOAuthProviders().join(", "));
+      if (isHelpFlag(provider)) {
+        printProviderUsage("login");
         return;
       }
       await handleLogin(provider);
       break;
     case "logout":
-      if (!provider || provider === "--help" || provider === "-h") {
-        console.log("Usage: ccr auth logout <provider>\n");
-        console.log("Available providers:", getAvailableOAuthProviders().join(", "));
+      if (isHelpFlag(provider)) {
+        printProviderUsage("logout");
         return;
       }
       await handleLogout(provider);
@@ -363,9 +378,12 @@ async function handleStatus(provider?: string): Promise<void> {
 
     if (token.type === 'oauth') {
       const expired = isTokenExpired(token);
+      const status = expired
+        ? `EXPIRED - run \`ccr auth login ${provider}\` to re-authenticate`
+        : "ACTIVE";
       console.log(`${provider}:`);
       console.log(`  Type:    OAuth`);
-      console.log(`  Status:  ${expired ? "EXPIRED - run `ccr auth login " + provider + "` to re-authenticate" : "ACTIVE"}`);
+      console.log(`  Status:  ${status}`);
       if (token.expires) {
         console.log(`  Expires: ${new Date(token.expires).toLocaleString()}`);
       }

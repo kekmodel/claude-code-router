@@ -100,7 +100,7 @@ async function handleTransformerEndpoint(
   } catch (error: any) {
     // Handle fallback if error occurs
     if (error.code === 'provider_response_error') {
-      const fallbackResult = await handleFallback(req, reply, fastify, transformer, error);
+      const fallbackResult = await handleFallback(req, reply, fastify, transformer);
       if (fallbackResult) {
         return fallbackResult;
       }
@@ -117,8 +117,7 @@ async function handleFallback(
   req: FastifyRequest,
   reply: FastifyReply,
   fastify: FastifyInstance,
-  transformer: any,
-  error: any
+  transformer: any
 ): Promise<any> {
   const scenarioType = (req as any).scenarioType || 'default';
   const fallbackConfig = fastify.configService.get<any>('fallback');
@@ -141,8 +140,13 @@ async function handleFallback(
 
       // Update request with fallback model
       const newBody = { ...(req.body as any) };
-      const [fallbackProvider, ...fallbackModelName] = fallbackModel.split(',');
-      newBody.model = fallbackModelName.join(',');
+      const parsedFallback = parseProviderModel(fallbackModel);
+      if (!parsedFallback) {
+        req.log.warn(`Invalid fallback model format: ${fallbackModel}`);
+        continue;
+      }
+      const { provider: fallbackProvider, model: fallbackModelName } = parsedFallback;
+      newBody.model = fallbackModelName;
 
       // Create new request object with updated provider and body
       const newReq = {
@@ -197,8 +201,92 @@ async function handleFallback(
     }
   }
 
-  req.log.error(`All fallback models failed for yichu ${scenarioType}`);
+  req.log.error(`All fallback models failed for ${scenarioType}`);
   return null;
+}
+
+function parseProviderModel(model: string): { provider: string; model: string } | null {
+  const [provider, ...modelParts] = model.split(",");
+  if (!provider || modelParts.length === 0) {
+    return null;
+  }
+  return {
+    provider,
+    model: modelParts.join(","),
+  };
+}
+
+function hasTransformBody(result: any): result is { body: any; config?: any } {
+  return typeof result === "object" && result !== null && "body" in result;
+}
+
+async function applyRequestTransformers(
+  transformers: any[] | undefined,
+  requestBody: any,
+  provider: any,
+  context: any,
+  config: any
+): Promise<{ requestBody: any; config: any }> {
+  if (!Array.isArray(transformers) || transformers.length === 0) {
+    return { requestBody, config };
+  }
+
+  let nextBody = requestBody;
+  let nextConfig = config;
+
+  for (const item of transformers) {
+    if (!item || typeof item.transformRequestIn !== "function") {
+      continue;
+    }
+
+    const transformed = await item.transformRequestIn(nextBody, provider, context);
+    if (hasTransformBody(transformed)) {
+      nextBody = transformed.body;
+      nextConfig = { ...nextConfig, ...(transformed.config || {}) };
+    } else {
+      nextBody = transformed;
+    }
+  }
+
+  return { requestBody: nextBody, config: nextConfig };
+}
+
+async function applyResponseTransformers(
+  transformers: Transformer[] | undefined,
+  response: any,
+  context: any
+): Promise<any> {
+  if (!Array.isArray(transformers) || transformers.length === 0) {
+    return response;
+  }
+
+  let nextResponse = response;
+  for (const item of [...transformers].reverse()) {
+    if (!item || typeof item.transformResponseOut !== "function") {
+      continue;
+    }
+    nextResponse = await item.transformResponseOut(nextResponse, context);
+  }
+
+  return nextResponse;
+}
+
+function sanitizeRequestHeaders(headers: Record<string, any>): Record<string, string> {
+  const sanitized: Record<string, string> = {};
+  for (const [key, rawValue] of Object.entries(headers)) {
+    if (rawValue === undefined || rawValue === null || rawValue === "undefined") {
+      continue;
+    }
+    const value = String(rawValue);
+    if (
+      ["authorization", "Authorization"].includes(key) &&
+      value.includes("undefined")
+    ) {
+      continue;
+    }
+    sanitized[key] = value;
+  }
+  return sanitized;
 }
 
 /**
@@ -221,18 +309,20 @@ async function processRequestTransformers(
   bypass = shouldBypassTransformers(provider, transformer, body);
 
   if (bypass) {
-    if (headers instanceof Headers) {
-      headers.delete("content-length");
+    const passthroughHeaders =
+      headers instanceof Headers ? new Headers(headers) : { ...headers };
+    if (passthroughHeaders instanceof Headers) {
+      passthroughHeaders.delete("content-length");
     } else {
-      delete headers["content-length"];
+      delete passthroughHeaders["content-length"];
     }
-    config.headers = headers;
+    config.headers = passthroughHeaders;
   }
 
   // Execute transformer's transformRequestOut method
   if (!bypass && typeof transformer.transformRequestOut === "function") {
     const transformOut = await transformer.transformRequestOut(requestBody);
-    if (transformOut.body) {
+    if (hasTransformBody(transformOut)) {
       requestBody = transformOut.body;
       config = transformOut.config || {};
     } else {
@@ -241,43 +331,29 @@ async function processRequestTransformers(
   }
 
   // Execute provider-level transformers
-  if (!bypass && provider.transformer?.use?.length) {
-    for (const providerTransformer of provider.transformer.use) {
-      if (
-        !providerTransformer ||
-        typeof providerTransformer.transformRequestIn !== "function"
-      ) {
-        continue;
-      }
-      const transformIn = await providerTransformer.transformRequestIn(
-        requestBody,
-        provider,
-        context
-      );
-      if (transformIn.body) {
-        requestBody = transformIn.body;
-        config = { ...config, ...transformIn.config };
-      } else {
-        requestBody = transformIn;
-      }
-    }
+  if (!bypass) {
+    const transformedProvider = await applyRequestTransformers(
+      provider.transformer?.use,
+      requestBody,
+      provider,
+      context,
+      config
+    );
+    requestBody = transformedProvider.requestBody;
+    config = transformedProvider.config;
   }
 
   // Execute model-specific transformers
-  if (!bypass && provider.transformer?.[body.model]?.use?.length) {
-    for (const modelTransformer of provider.transformer[body.model].use) {
-      if (
-        !modelTransformer ||
-        typeof modelTransformer.transformRequestIn !== "function"
-      ) {
-        continue;
-      }
-      requestBody = await modelTransformer.transformRequestIn(
-        requestBody,
-        provider,
-        context
-      );
-    }
+  if (!bypass) {
+    const transformedModel = await applyRequestTransformers(
+      provider.transformer?.[requestBody.model]?.use,
+      requestBody,
+      provider,
+      context,
+      config
+    );
+    requestBody = transformedModel.requestBody;
+    config = transformedModel.config;
   }
 
   return { requestBody, config, bypass };
@@ -356,24 +432,15 @@ async function sendRequestToProvider(
     ...(config?.headers || {}),
   };
 
-  for (const key in requestHeaders) {
-    if (requestHeaders[key] === "undefined") {
-      delete requestHeaders[key];
-    } else if (
-      ["authorization", "Authorization"].includes(key) &&
-      requestHeaders[key]?.includes("undefined")
-    ) {
-      delete requestHeaders[key];
-    }
-  }
-
   const response = await sendUnifiedRequest(
     url,
     requestBody,
     {
       httpsProxy: fastify.configService.getHttpsProxy(),
       ...config,
-      headers: JSON.parse(JSON.stringify(requestHeaders)),
+      headers: sanitizeRequestHeaders(
+        JSON.parse(JSON.stringify(requestHeaders))
+      ),
     },
     context,
     fastify.log
@@ -410,39 +477,21 @@ async function processResponseTransformers(
   let finalResponse = response;
 
   // Execute provider-level response transformers
-  if (!bypass && provider.transformer?.use?.length) {
-    for (const providerTransformer of Array.from(
-      provider.transformer.use
-    ).reverse() as Transformer[]) {
-      if (
-        !providerTransformer ||
-        typeof providerTransformer.transformResponseOut !== "function"
-      ) {
-        continue;
-      }
-      finalResponse = await providerTransformer.transformResponseOut!(
-        finalResponse,
-        context
-      );
-    }
+  if (!bypass) {
+    finalResponse = await applyResponseTransformers(
+      provider.transformer?.use as Transformer[] | undefined,
+      finalResponse,
+      context
+    );
   }
 
   // Execute model-specific response transformers
-  if (!bypass && provider.transformer?.[requestBody.model]?.use?.length) {
-    for (const modelTransformer of Array.from(
-      provider.transformer[requestBody.model].use
-    ).reverse() as Transformer[]) {
-      if (
-        !modelTransformer ||
-        typeof modelTransformer.transformResponseOut !== "function"
-      ) {
-        continue;
-      }
-      finalResponse = await modelTransformer.transformResponseOut!(
-        finalResponse,
-        context
-      );
-    }
+  if (!bypass) {
+    finalResponse = await applyResponseTransformers(
+      provider.transformer?.[requestBody.model]?.use as Transformer[] | undefined,
+      finalResponse,
+      context
+    );
   }
 
   // Execute transformer's transformResponseIn method

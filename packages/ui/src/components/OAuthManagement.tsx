@@ -139,14 +139,23 @@ export function OAuthManagement() {
 
   // Get status badge variant and label
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return { variant: 'default' as const, label: t('oauth.status_active'), className: 'bg-green-500 hover:bg-green-500/80' };
-      case 'expired':
-        return { variant: 'destructive' as const, label: t('oauth.status_expired'), className: '' };
-      default:
-        return { variant: 'secondary' as const, label: t('oauth.status_not_authenticated'), className: '' };
-    }
+    const statusMap: Record<string, { variant: 'default' | 'destructive' | 'secondary'; label: string; className: string }> = {
+      active: {
+        variant: 'default',
+        label: t('oauth.status_active'),
+        className: 'bg-green-500 hover:bg-green-500/80',
+      },
+      expired: {
+        variant: 'destructive',
+        label: t('oauth.status_expired'),
+        className: '',
+      },
+    };
+    return statusMap[status] || {
+      variant: 'secondary',
+      label: t('oauth.status_not_authenticated'),
+      className: '',
+    };
   };
 
   // Format expiry time
@@ -170,18 +179,13 @@ export function OAuthManagement() {
 
   // Get provider display info
   const getProviderInfo = (name: string) => {
-    switch (name) {
-      case 'copilot':
-        return { displayName: 'GitHub Copilot', description: t('oauth.copilot_description') };
-      case 'codex':
-        return { displayName: 'OpenAI Codex', description: t('oauth.codex_description') };
-      case 'gemini':
-        return { displayName: 'Google Gemini', description: t('oauth.gemini_description') };
-      case 'antigravity':
-        return { displayName: 'Antigravity', description: t('oauth.antigravity_description') };
-      default:
-        return { displayName: name, description: '' };
-    }
+    const providerMap: Record<string, { displayName: string; description: string }> = {
+      copilot: { displayName: 'GitHub Copilot', description: t('oauth.copilot_description') },
+      codex: { displayName: 'OpenAI Codex', description: t('oauth.codex_description') },
+      gemini: { displayName: 'Google Gemini', description: t('oauth.gemini_description') },
+      antigravity: { displayName: 'Antigravity', description: t('oauth.antigravity_description') },
+    };
+    return providerMap[name] || { displayName: name, description: '' };
   };
 
   return (

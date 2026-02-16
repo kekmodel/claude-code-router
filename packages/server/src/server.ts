@@ -24,7 +24,6 @@ import {
   listTokens,
   deleteToken,
   getToken,
-  isTokenExpired,
   getAvailableOAuthProviders,
   startCopilotLogin,
   startCodexLogin,
@@ -34,11 +33,21 @@ import {
 } from "@CCR/shared";
 import fastifyMultipart from "@fastify/multipart";
 import AdmZip from "adm-zip";
+import {
+  createAuthCodeProviders,
+  getProviderAuthState,
+  buildStaticRouterModels,
+} from "./oauthHelpers";
 
 export const createServer = async (config: any): Promise<any> => {
   const server = new Server(config);
   await server.waitForInit();
   const app = server.app;
+  const DEFAULT_LOG_FILE_PATH = join(homedir(), ".claude-code-router", "logs", "app.log");
+
+  function resolveLogFilePath(filePath?: string): string {
+    return filePath || DEFAULT_LOG_FILE_PATH;
+  }
 
   app.register(fastifyMultipart, {
     limits: {
@@ -174,15 +183,7 @@ export const createServer = async (config: any): Promise<any> => {
   app.get("/api/logs", async (req: any, reply: any) => {
     try {
       const filePath = (req.query as any).file as string;
-      let logFilePath: string;
-
-      if (filePath) {
-        // If file path is specified, use the specified path
-        logFilePath = filePath;
-      } else {
-        // If file path is not specified, use default log file path
-        logFilePath = join(homedir(), ".claude-code-router", "logs", "app.log");
-      }
+      const logFilePath = resolveLogFilePath(filePath);
 
       if (!existsSync(logFilePath)) {
         return [];
@@ -202,15 +203,7 @@ export const createServer = async (config: any): Promise<any> => {
   app.delete("/api/logs", async (req: any, reply: any) => {
     try {
       const filePath = (req.query as any).file as string;
-      let logFilePath: string;
-
-      if (filePath) {
-        // If file path is specified, use the specified path
-        logFilePath = filePath;
-      } else {
-        // If file path is not specified, use default log file path
-        logFilePath = join(homedir(), ".claude-code-router", "logs", "app.log");
-      }
+      const logFilePath = resolveLogFilePath(filePath);
 
       if (existsSync(logFilePath)) {
         writeFileSync(logFilePath, '', 'utf8');
@@ -474,28 +467,19 @@ export const createServer = async (config: any): Promise<any> => {
   });
 
   // ========== OAuth API endpoints ==========
+  const authCodeProviders = createAuthCodeProviders({
+    startCodexLogin,
+    startGeminiLogin,
+    startAntigravityLogin,
+  });
 
   // List OAuth providers and their auth status
   app.get("/api/auth/providers", async (req: any, reply: any) => {
     try {
-      const availableProviders = getAvailableOAuthProviders();
       const tokens = await listTokens();
       const tokenMap = new Map(tokens.map(t => [t.provider, t.token]));
-
-      const providers = availableProviders.map(name => {
-        const token = tokenMap.get(name);
-        let status: 'not_authenticated' | 'active' | 'expired' = 'not_authenticated';
-        let expiresAt: number | null = null;
-
-        if (token) {
-          if (token.type === 'api') {
-            status = 'active';
-          } else {
-            status = isTokenExpired(token) ? 'expired' : 'active';
-            expiresAt = token.expires;
-          }
-        }
-
+      const providers = getAvailableOAuthProviders().map(name => {
+        const { status, expiresAt } = getProviderAuthState(tokenMap.get(name));
         return { name, status, expiresAt };
       });
 
@@ -510,16 +494,7 @@ export const createServer = async (config: any): Promise<any> => {
   app.post("/api/auth/login/:provider", async (req: any, reply: any) => {
     try {
       const { provider } = req.params;
-
-      // Auth Code providers share the same flow pattern
-      const authCodeProviders: Record<string, {
-        startLogin: () => Promise<{ authUrl: string; waitForAuth: () => Promise<any> }>;
-        message: string;
-      }> = {
-        codex: { startLogin: startCodexLogin, message: "Visit the URL to authenticate with OpenAI Codex." },
-        gemini: { startLogin: startGeminiLogin, message: "Visit the URL to authenticate with Google for Gemini." },
-        antigravity: { startLogin: startAntigravityLogin, message: "Visit the URL to authenticate with Google for Antigravity." },
-      };
+      const authCodeProvider = authCodeProviders[provider];
 
       if (provider === "copilot") {
         const { userCode, verificationUri, waitForAuth } = await startCopilotLogin();
@@ -531,18 +506,23 @@ export const createServer = async (config: any): Promise<any> => {
           verificationUri,
           message: "Visit the URL and enter the code to authenticate.",
         };
-      } else if (provider in authCodeProviders) {
-        const { startLogin, message } = authCodeProviders[provider];
-        const { authUrl, waitForAuth } = await startLogin();
-        waitForAuth().catch(err => console.error(`${provider} auth error:`, err.message));
-        return { flow: "authorization_code", authUrl, message };
-      } else {
-        reply.status(400).send({
-          error: `Unknown OAuth provider: ${provider}`,
-          available: getAvailableOAuthProviders(),
-        });
-        return;
       }
+
+      if (authCodeProvider) {
+        const { authUrl, waitForAuth } = await authCodeProvider.startLogin();
+        waitForAuth().catch(err => console.error(`${provider} auth error:`, err.message));
+        return {
+          flow: "authorization_code",
+          authUrl,
+          message: authCodeProvider.message,
+        };
+      }
+
+      reply.status(400).send({
+        error: `Unknown OAuth provider: ${provider}`,
+        available: getAvailableOAuthProviders(),
+      });
+      return;
     } catch (error: any) {
       console.error("Failed to start OAuth login:", error);
       reply.status(500).send({ error: error.message || "Failed to start OAuth login" });
@@ -569,21 +549,14 @@ export const createServer = async (config: any): Promise<any> => {
     try {
       const { provider } = req.params;
       const token = await getToken(provider);
-
+      const { status, expiresAt } = getProviderAuthState(token);
       if (!token) {
-        return { provider, status: 'not_authenticated' };
+        return { provider, status };
       }
-
-      if (token.type === 'api') {
-        return { provider, status: 'active', type: 'api' };
+      if (token.type === "api") {
+        return { provider, status, type: "api" };
       }
-
-      return {
-        provider,
-        status: isTokenExpired(token) ? 'expired' : 'active',
-        type: 'oauth',
-        expiresAt: token.expires,
-      };
+      return { provider, status, type: "oauth", expiresAt };
     } catch (error: any) {
       console.error("Failed to get auth status:", error);
       reply.status(500).send({ error: error.message || "Failed to get auth status" });
@@ -592,53 +565,35 @@ export const createServer = async (config: any): Promise<any> => {
 
   // Get all available models for router configuration (static + OAuth)
   app.get("/api/router/models", async (req: any, reply: any) => {
-    // 1. Static models from config Providers
     const config = await readConfigFile();
     const providers = Array.isArray(config.Providers) ? config.Providers : [];
-    const models: Array<{
-      value: string;
-      label: string;
-      provider: string;
-      reasoningLevels?: string[];
-      defaultReasoningLevel?: string;
-    }> = [];
+    const models = buildStaticRouterModels(providers);
+    const modelByValue = new Map(models.map((model) => [model.value, model]));
 
-    for (const p of providers) {
-      if (!p?.name || !Array.isArray(p.models)) continue;
-      for (const model of p.models) {
-        models.push({
-          value: `${p.name},${model}`,
-          label: `${p.name}, ${model}`,
-          provider: p.name,
-        });
-      }
-    }
-
-    // 2. OAuth models (from authenticated providers)
     for (const p of providers) {
       if (p?.auth_type !== "oauth" || !p?.oauth_provider) continue;
       try {
         const oauthModels = await fetchOAuthModels(p.oauth_provider);
-        const existingValues = new Set(models.map((m) => m.value));
         for (const om of oauthModels) {
           const value = `${p.name},${om.id}`;
-          if (existingValues.has(value)) {
-            // Enrich existing static model with reasoning level info
-            const existing = models.find((m) => m.value === value);
-            if (existing && (om.reasoningLevels || om.defaultReasoningLevel)) {
+          const existing = modelByValue.get(value);
+          if (existing) {
+            if (om.reasoningLevels || om.defaultReasoningLevel) {
               existing.reasoningLevels = om.reasoningLevels;
               existing.defaultReasoningLevel = om.defaultReasoningLevel;
             }
-          } else {
-            models.push({
-              value,
-              label: `${p.name}, ${om.name || om.id}`,
-              provider: p.name,
-              reasoningLevels: om.reasoningLevels,
-              defaultReasoningLevel: om.defaultReasoningLevel,
-            });
-            existingValues.add(value);
+            continue;
           }
+
+          const entry = {
+            value,
+            label: `${p.name}, ${om.name || om.id}`,
+            provider: p.name,
+            reasoningLevels: om.reasoningLevels,
+            defaultReasoningLevel: om.defaultReasoningLevel,
+          };
+          models.push(entry);
+          modelByValue.set(value, entry);
         }
       } catch {
         // OAuth not authenticated or fetch failed — skip
@@ -672,16 +627,20 @@ export const createServer = async (config: any): Promise<any> => {
     if (!providerConfig) {
       return reply.status(404).send({ error: `OAuth provider '${providerName}' not found` });
     }
+    if (!providerConfig.oauth_provider) {
+      return reply.status(400).send({ error: `Provider '${providerName}' is missing oauth_provider` });
+    }
 
     try {
       const oauthModels = await fetchOAuthModels(providerConfig.oauth_provider);
-      const existingModels = new Set(providerConfig.models || []);
+      providerConfig.models = Array.isArray(providerConfig.models) ? providerConfig.models : [];
+      const existingModels = new Set(providerConfig.models);
       let added = 0;
 
       for (const om of oauthModels) {
         if (!existingModels.has(om.id)) {
-          providerConfig.models = providerConfig.models || [];
           providerConfig.models.push(om.id);
+          existingModels.add(om.id);
           added++;
         }
       }

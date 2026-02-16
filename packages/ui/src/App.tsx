@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { SettingsDialog } from "@/components/SettingsDialog";
@@ -45,86 +45,68 @@ function App() {
   const [hasCheckedUpdate, setHasCheckedUpdate] = useState(false);
   const [isUpdateFeatureAvailable, setIsUpdateFeatureAvailable] = useState(true);
   const hasAutoCheckedUpdate = useRef(false);
+  const headerIconButtonClass = "transition-all-ease hover:scale-110";
 
-  const saveConfig = async () => {
-    // Handle case where config might be null or undefined
+  const showOperationResult = (
+    response: unknown,
+    successMessage: string,
+    failedMessage: string
+  ): boolean => {
+    if (response && typeof response === 'object' && 'success' in response) {
+      const apiResponse = response as { success: boolean; message?: string };
+      if (apiResponse.success) {
+        setToast({ message: apiResponse.message || successMessage, type: 'success' });
+        return true;
+      }
+      setToast({ message: apiResponse.message || failedMessage, type: 'error' });
+      return false;
+    }
+    setToast({ message: successMessage, type: 'success' });
+    return true;
+  };
+
+  const saveCurrentConfig = async (): Promise<boolean> => {
     if (!config) {
       setToast({ message: t('app.config_missing'), type: 'error' });
-      return;
+      return false;
     }
-    
+
+    const response = await api.updateConfig(config);
+    return showOperationResult(
+      response,
+      t('app.config_saved_success'),
+      t('app.config_saved_failed')
+    );
+  };
+
+  const saveConfig = async () => {
     try {
-      // Save to API
-      const response = await api.updateConfig(config);
-      // Show success message or handle as needed
-      console.log('Config saved successfully');
-      
-      // 根据响应信息进行提示
-      if (response && typeof response === 'object' && 'success' in response) {
-        const apiResponse = response as { success: boolean; message?: string };
-        if (apiResponse.success) {
-          setToast({ message: apiResponse.message || t('app.config_saved_success'), type: 'success' });
-        } else {
-          setToast({ message: apiResponse.message || t('app.config_saved_failed'), type: 'error' });
-        }
-      } else {
-        // 默认成功提示
-        setToast({ message: t('app.config_saved_success'), type: 'success' });
-      }
+      await saveCurrentConfig();
     } catch (error) {
       console.error('Failed to save config:', error);
-      // Handle error appropriately
       setToast({ message: t('app.config_saved_failed') + ': ' + (error as Error).message, type: 'error' });
     }
   };
 
   const saveConfigAndRestart = async () => {
-    // Handle case where config might be null or undefined
-    if (!config) {
-      setToast({ message: t('app.config_missing'), type: 'error' });
-      return;
-    }
-    
     try {
-      // Save to API
-      const response = await api.updateConfig(config);
-      
-      // Check if save was successful before restarting
-      let saveSuccessful = true;
-      if (response && typeof response === 'object' && 'success' in response) {
-        const apiResponse = response as { success: boolean; message?: string };
-        if (!apiResponse.success) {
-          saveSuccessful = false;
-          setToast({ message: apiResponse.message || t('app.config_saved_failed'), type: 'error' });
-        }
+      const saveSuccessful = await saveCurrentConfig();
+      if (!saveSuccessful) {
+        return;
       }
-      
-      // Only restart if save was successful
-      if (saveSuccessful) {
-        // Restart service
-        const response = await api.restartService();
-        
-        // Show success message or handle as needed
-        console.log('Config saved and service restarted successfully');
-        
-        // 根据响应信息进行提示
-        if (response && typeof response === 'object' && 'success' in response) {
-          const apiResponse = response as { success: boolean; message?: string };
-          if (apiResponse.success) {
-            setToast({ message: apiResponse.message || t('app.config_saved_restart_success'), type: 'success' });
-          }
-        } else {
-          // 默认成功提示
-          setToast({ message: t('app.config_saved_restart_success'), type: 'success' });
-        }
-      }
+
+      const response = await api.restartService();
+      showOperationResult(
+        response,
+        t('app.config_saved_restart_success'),
+        t('app.config_saved_restart_failed')
+      );
     } catch (error) {
       console.error('Failed to save config and restart:', error);
-      // Handle error appropriately
       setToast({ message: t('app.config_saved_restart_failed') + ': ' + (error as Error).message, type: 'error' });
     }
   };
-  
+
   // 检查更新函数
   const checkForUpdates = useCallback(async (showDialog: boolean = true) => {
     // 如果已经检查过且有新版本，根据参数决定是否显示对话框
@@ -166,16 +148,49 @@ function App() {
     }
   }, [hasCheckedUpdate, isNewVersionAvailable, t]);
 
+  const triggerAutoUpdateCheck = useCallback(() => {
+    if (!hasCheckedUpdate && !hasAutoCheckedUpdate.current) {
+      hasAutoCheckedUpdate.current = true;
+      checkForUpdates(false);
+    }
+  }, [hasCheckedUpdate, checkForUpdates]);
+
+  const renderHeaderIconButton = (
+    icon: ReactNode,
+    onClick: () => void,
+    tooltip: string
+  ) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onClick}
+          className={headerIconButtonClass}
+        >
+          {icon}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>{tooltip}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+
+  const renderCenteredState = (message: string, tone: "muted" | "error" = "muted") => (
+    <div className="h-screen bg-gray-50 font-sans flex items-center justify-center">
+      <div className={tone === "error" ? "text-red-500" : "text-gray-500"}>
+        {message}
+      </div>
+    </div>
+  );
+
   useEffect(() => {
     const checkAuth = async () => {
       // If we already have a config, we're authenticated
       if (config) {
         setIsCheckingAuth(false);
-        // 自动检查更新，但不显示对话框
-        if (!hasCheckedUpdate && !hasAutoCheckedUpdate.current) {
-          hasAutoCheckedUpdate.current = true;
-          checkForUpdates(false);
-        }
+        triggerAutoUpdateCheck();
         return;
       }
       
@@ -201,11 +216,7 @@ function App() {
         }
       } finally {
         setIsCheckingAuth(false);
-        // 在获取配置完成后检查更新，但不显示对话框
-        if (!hasCheckedUpdate && !hasAutoCheckedUpdate.current) {
-          hasAutoCheckedUpdate.current = true;
-          checkForUpdates(false);
-        }
+        triggerAutoUpdateCheck();
       }
     };
 
@@ -221,7 +232,7 @@ function App() {
     return () => {
       window.removeEventListener('unauthorized', handleUnauthorized);
     };
-  }, [config, navigate, hasCheckedUpdate, checkForUpdates]);
+  }, [config, navigate, triggerAutoUpdateCheck]);
   
   // 执行更新函数
   const performUpdate = async () => {
@@ -246,28 +257,16 @@ function App() {
 
   
   if (isCheckingAuth) {
-    return (
-      <div className="h-screen bg-gray-50 font-sans flex items-center justify-center">
-        <div className="text-gray-500">Loading application...</div>
-      </div>
-    );
+    return renderCenteredState("Loading application...");
   }
 
   if (error) {
-    return (
-      <div className="h-screen bg-gray-50 font-sans flex items-center justify-center">
-        <div className="text-red-500">Error: {error.message}</div>
-      </div>
-    );
+    return renderCenteredState(`Error: ${error.message}`, "error");
   }
 
   // Handle case where config is null or undefined
   if (!config) {
-    return (
-      <div className="h-screen bg-gray-50 font-sans flex items-center justify-center">
-        <div className="text-gray-500">Loading configuration...</div>
-      </div>
-    );
+    return renderCenteredState("Loading configuration...");
   }
 
   return (
@@ -276,56 +275,11 @@ function App() {
       <header className="flex h-16 items-center justify-between border-b bg-white px-6">
         <h1 className="text-xl font-semibold text-gray-800">{t('app.title')}</h1>
         <div className="flex items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={() => setIsSettingsOpen(true)} className="transition-all-ease hover:scale-110">
-                <Settings className="h-5 w-5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{t('app.settings')}</p>
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={() => setIsJsonEditorOpen(true)} className="transition-all-ease hover:scale-110">
-                <FileJson className="h-5 w-5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{t('app.json_editor')}</p>
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={() => setIsLogViewerOpen(true)} className="transition-all-ease hover:scale-110">
-                <FileText className="h-5 w-5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{t('app.log_viewer')}</p>
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={() => navigate('/presets')} className="transition-all-ease hover:scale-110">
-                <FileCog className="h-5 w-5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{t('app.presets')}</p>
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={() => navigate('/oauth')} className="transition-all-ease hover:scale-110">
-                <KeyRound className="h-5 w-5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{t('app.oauth')}</p>
-            </TooltipContent>
-          </Tooltip>
+          {renderHeaderIconButton(<Settings className="h-5 w-5" />, () => setIsSettingsOpen(true), t('app.settings'))}
+          {renderHeaderIconButton(<FileJson className="h-5 w-5" />, () => setIsJsonEditorOpen(true), t('app.json_editor'))}
+          {renderHeaderIconButton(<FileText className="h-5 w-5" />, () => setIsLogViewerOpen(true), t('app.log_viewer'))}
+          {renderHeaderIconButton(<FileCog className="h-5 w-5" />, () => navigate('/presets'), t('app.presets'))}
+          {renderHeaderIconButton(<KeyRound className="h-5 w-5" />, () => navigate('/oauth'), t('app.oauth'))}
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="icon" className="transition-all-ease hover:scale-110">

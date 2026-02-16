@@ -31,11 +31,16 @@ export async function fetchOAuthModels(provider: string): Promise<OAuthModel[]> 
   }
 }
 
-async function fetchCopilotModels(): Promise<OAuthModel[]> {
-  const token = await getToken("copilot");
+async function requireOAuthToken(provider: string, label: string) {
+  const token = await getToken(provider);
   if (!token || token.type !== "oauth") {
-    throw new Error("Not authenticated with Copilot");
+    throw new Error(`Not authenticated with ${label}`);
   }
+  return token;
+}
+
+async function fetchCopilotModels(): Promise<OAuthModel[]> {
+  const token = await requireOAuthToken("copilot", "Copilot");
 
   const copilotToken = await getCopilotApiToken(token.refresh);
 
@@ -77,10 +82,7 @@ const CODEX_MODELS_URL =
   "https://raw.githubusercontent.com/openai/codex/main/codex-rs/core/models.json";
 
 async function fetchCodexModels(): Promise<OAuthModel[]> {
-  const token = await getToken("codex");
-  if (!token || token.type !== "oauth") {
-    throw new Error("Not authenticated with Codex");
-  }
+  await requireOAuthToken("codex", "Codex");
 
   const response = await fetch(CODEX_MODELS_URL, {
     headers: { Accept: "application/json" },
@@ -130,10 +132,7 @@ const GEMINI_MODELS_URL =
   "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/packages/core/src/config/models.ts";
 
 async function fetchGeminiModels(): Promise<OAuthModel[]> {
-  const token = await getToken("gemini");
-  if (!token || token.type !== "oauth") {
-    throw new Error("Not authenticated with Gemini");
-  }
+  await requireOAuthToken("gemini", "Gemini");
 
   const response = await fetch(GEMINI_MODELS_URL, {
     headers: { Accept: "text/plain" },
@@ -193,10 +192,7 @@ const ANTIGRAVITY_KNOWN_MODELS: OAuthModel[] = [
 ];
 
 async function fetchAntigravityModels(): Promise<OAuthModel[]> {
-  const token = await getToken("antigravity");
-  if (!token || token.type !== "oauth") {
-    throw new Error("Not authenticated with Antigravity");
-  }
+  await requireOAuthToken("antigravity", "Antigravity");
 
   const models = [...ANTIGRAVITY_KNOWN_MODELS];
 

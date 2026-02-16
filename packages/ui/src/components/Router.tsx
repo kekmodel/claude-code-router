@@ -79,15 +79,20 @@ export function Router() {
     setConfig({ ...config, forceUseImageAgent: value });
   };
 
+  const routerModelMap = useMemo(
+    () => new Map(routerModels.map((model) => [model.value, model])),
+    [routerModels]
+  );
+
   // Get reasoning levels for a model value
   const getReasoningLevels = (modelValue: string): string[] => {
-    const found = routerModels.find((m) => m.value === modelValue);
+    const found = routerModelMap.get(modelValue);
     return found?.reasoningLevels || [];
   };
 
   // Get default reasoning level for a model value
   const getDefaultReasoningLevel = (modelValue: string): string => {
-    const found = routerModels.find((m) => m.value === modelValue);
+    const found = routerModelMap.get(modelValue);
     return found?.defaultReasoningLevel || "";
   };
 
