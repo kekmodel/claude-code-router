@@ -1,4 +1,4 @@
-import type { Config, Provider, Transformer, OAuthProviderInfo, OAuthLoginResponse } from '@/types';
+import type { Config, Provider, Transformer, OAuthProviderInfo, OAuthLoginResponse, OAuthModel } from '@/types';
 
 // 日志聚合响应类型
 interface GroupedLogsResponse {
@@ -347,8 +347,8 @@ class ApiClient {
   }
 
   // Fetch available models for an OAuth provider
-  async fetchAuthModels(provider: string): Promise<{ provider: string; models: Array<{ id: string; name?: string; provider: string; reasoningLevels?: string[]; defaultReasoningLevel?: string; plans?: string[] }> }> {
-    return this.get<{ provider: string; models: Array<{ id: string; name?: string; provider: string; reasoningLevels?: string[]; defaultReasoningLevel?: string; plans?: string[] }> }>(`/auth/models/${encodeURIComponent(provider)}`);
+  async fetchAuthModels(provider: string): Promise<{ provider: string; models: OAuthModel[] }> {
+    return this.get<{ provider: string; models: OAuthModel[] }>(`/auth/models/${encodeURIComponent(provider)}`);
   }
 
   // Fetch all available models for router configuration (static + OAuth)

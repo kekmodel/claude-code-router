@@ -1,14 +1,12 @@
 /**
  * OpenAI Codex OAuth provider
- * Uses Authorization Code + PKCE flow to authenticate with OpenAI.
- * The access_token from the OAuth flow is used directly as the API credential.
- * Requires ChatGPT Plus/Pro subscription.
+ * Uses Authorization Code + PKCE flow. Requires ChatGPT Plus/Pro subscription.
  */
 
 import type { OAuthProviderConfig, OAuthToken } from "../types";
 import { startAuthCodeLogin } from "../oauth/authorizationCode";
-import { getToken, saveToken, isTokenExpired, calculateExpiry } from "../tokenStore";
-import { refreshAccessToken } from "../oauth/tokenRefresh";
+import { getToken } from "../tokenStore";
+import { getOAuthAccessToken } from "../oauth/tokenRefresh";
 
 export const CODEX_OAUTH_CONFIG: OAuthProviderConfig = {
   name: "codex",
@@ -22,27 +20,20 @@ export const CODEX_OAUTH_CONFIG: OAuthProviderConfig = {
 
 /**
  * Extract chatgpt_account_id from the id_token JWT claims.
- * Checks root-level and nested claim paths.
  */
 function extractAccountId(idToken: string): string | undefined {
   try {
     const parts = idToken.split(".");
     if (parts.length !== 3) return undefined;
     const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
-    // Check root-level claim
     if (payload.chatgpt_account_id) return payload.chatgpt_account_id;
-    // Check nested claim path (https://api.openai.com/auth)
     const authClaims = payload["https://api.openai.com/auth"];
-    if (authClaims?.chatgpt_account_id) return authClaims.chatgpt_account_id;
-    return undefined;
+    return authClaims?.chatgpt_account_id;
   } catch {
     return undefined;
   }
 }
 
-/**
- * Start OpenAI Codex login via Authorization Code + PKCE
- */
 export async function startCodexLogin(): Promise<{
   authUrl: string;
   waitForAuth: () => Promise<OAuthToken>;
@@ -54,48 +45,10 @@ export async function startCodexLogin(): Promise<{
   });
 }
 
-/**
- * Get a valid OpenAI Codex access token, refreshing if needed.
- */
 export async function getCodexAccessToken(): Promise<string> {
-  const token = await getToken("codex");
-  if (!token || token.type !== "oauth") {
-    throw new Error(
-      "Not authenticated with OpenAI Codex. Run `ccr auth login codex` first."
-    );
-  }
-
-  if (!isTokenExpired(token)) {
-    return token.access;
-  }
-
-  if (!token.refresh) {
-    throw new Error(
-      "OpenAI Codex token expired and no refresh token available. Run `ccr auth login codex` again."
-    );
-  }
-
-  try {
-    const newTokens = await refreshAccessToken(CODEX_OAUTH_CONFIG, token.refresh);
-    const updatedToken: OAuthToken = {
-      ...token,
-      access: newTokens.access_token,
-      refresh: newTokens.refresh_token || token.refresh,
-      expires: calculateExpiry(newTokens.expires_in),
-    };
-    await saveToken("codex", updatedToken);
-    return updatedToken.access;
-  } catch (error) {
-    console.error("Failed to refresh OpenAI Codex token:", error);
-    throw new Error(
-      "Failed to refresh OpenAI Codex token. Run `ccr auth login codex` again."
-    );
-  }
+  return getOAuthAccessToken("codex", CODEX_OAUTH_CONFIG);
 }
 
-/**
- * Get extra headers required by the Codex API (chatgpt-account-id).
- */
 export async function getCodexExtraHeaders(): Promise<Record<string, string>> {
   const token = await getToken("codex");
   if (token?.type === "oauth" && token.accountId) {
@@ -104,9 +57,6 @@ export async function getCodexExtraHeaders(): Promise<Record<string, string>> {
   return {};
 }
 
-/**
- * Get the Codex API base URL
- */
 export function getCodexBaseUrl(): string {
   return "https://chatgpt.com/backend-api/codex/responses";
 }

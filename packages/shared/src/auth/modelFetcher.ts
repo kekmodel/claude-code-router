@@ -1,9 +1,6 @@
 /**
  * OAuth provider model fetcher
- * - Copilot: Dynamic API (api.githubcopilot.com/models)
- * - Codex: Parse from openai/codex CLI models.json on GitHub
- * - Gemini: Parse from google-gemini/gemini-cli models.ts on GitHub
- * - Antigravity: Static list + Gemini API supplement
+ * Fetches available models for each OAuth provider from their respective sources.
  */
 
 import { getToken } from "./tokenStore";
@@ -19,9 +16,6 @@ export interface OAuthModel {
   plans?: string[];
 }
 
-/**
- * Fetch available models for a given OAuth provider
- */
 export async function fetchOAuthModels(provider: string): Promise<OAuthModel[]> {
   switch (provider) {
     case "copilot":
@@ -36,9 +30,6 @@ export async function fetchOAuthModels(provider: string): Promise<OAuthModel[]> 
       throw new Error(`Unknown OAuth provider: ${provider}`);
   }
 }
-
-// ===================== GitHub Copilot =====================
-// Dynamic: Uses Copilot API token to fetch models from api.githubcopilot.com/models
 
 async function fetchCopilotModels(): Promise<OAuthModel[]> {
   const token = await getToken("copilot");
@@ -62,14 +53,16 @@ async function fetchCopilotModels(): Promise<OAuthModel[]> {
   }
 
   const data = (await response.json()) as any;
-  const models: OAuthModel[] = [];
   const modelList = data.data || data.models || data;
-  if (Array.isArray(modelList)) {
-    for (const m of modelList) {
-      const id = m.id || m.name || m.model;
-      if (id) {
-        models.push({ id, name: m.name || m.id, provider: "copilot" });
-      }
+  if (!Array.isArray(modelList)) {
+    throw new Error("Copilot models API returned unexpected format");
+  }
+
+  const models: OAuthModel[] = [];
+  for (const m of modelList) {
+    const id = m.id || m.name || m.model;
+    if (id) {
+      models.push({ id, name: m.name || m.id, provider: "copilot" });
     }
   }
 
@@ -79,10 +72,6 @@ async function fetchCopilotModels(): Promise<OAuthModel[]> {
 
   return models;
 }
-
-// ===================== OpenAI Codex =====================
-// Dynamic: Parse from official Codex CLI models.json on GitHub
-// Source: https://github.com/openai/codex/blob/main/codex-rs/core/models.json
 
 const CODEX_MODELS_URL =
   "https://raw.githubusercontent.com/openai/codex/main/codex-rs/core/models.json";
@@ -109,10 +98,8 @@ async function fetchCodexModels(): Promise<OAuthModel[]> {
     throw new Error("Failed to parse models from Codex CLI models.json");
   }
 
-  // Sort by priority (lower = higher priority), visible models first
-  const models: OAuthModel[] = modelList
+  return modelList
     .sort((a: any, b: any) => {
-      // visibility: "list" before "hide"
       const aVisible = a.visibility === "list" ? 0 : 1;
       const bVisible = b.visibility === "list" ? 0 : 1;
       if (aVisible !== bVisible) return aVisible - bVisible;
@@ -124,7 +111,6 @@ async function fetchCodexModels(): Promise<OAuthModel[]> {
         name: m.display_name || m.slug,
         provider: "codex",
       };
-      // Parse reasoning levels
       if (Array.isArray(m.supported_reasoning_levels)) {
         model.reasoningLevels = m.supported_reasoning_levels.map(
           (r: any) => r.effort || r
@@ -133,19 +119,12 @@ async function fetchCodexModels(): Promise<OAuthModel[]> {
       if (m.default_reasoning_level) {
         model.defaultReasoningLevel = m.default_reasoning_level;
       }
-      // Parse available plans
       if (Array.isArray(m.available_in_plans)) {
         model.plans = m.available_in_plans;
       }
       return model;
     });
-
-  return models;
 }
-
-// ===================== Google Gemini =====================
-// Dynamic: Parse from official Gemini CLI models.ts on GitHub
-// Source: https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/config/models.ts
 
 const GEMINI_MODELS_URL =
   "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/packages/core/src/config/models.ts";
@@ -166,18 +145,12 @@ async function fetchGeminiModels(): Promise<OAuthModel[]> {
   }
 
   const source = await response.text();
-
-  // Extract model IDs from exported constants and VALID_GEMINI_MODELS set
-  // Patterns: const X = 'gemini-...' and Set(['gemini-...', ...])
   const modelIds = new Set<string>();
 
-  // Match gemini model string literals that end with a proper model name segment
   const stringLiterals = source.matchAll(/'(gemini-[\d]+(?:\.[\d]+)?-[a-z][a-z0-9-]*[a-z0-9])'/g);
   for (const m of stringLiterals) {
-    const id = m[1];
-    // Exclude embedding models — they're not for chat/generation
-    if (!id.includes("embedding")) {
-      modelIds.add(id);
+    if (!m[1].includes("embedding")) {
+      modelIds.add(m[1]);
     }
   }
 
@@ -185,9 +158,7 @@ async function fetchGeminiModels(): Promise<OAuthModel[]> {
     throw new Error("Failed to parse model IDs from Gemini CLI source");
   }
 
-  // Gemini 3.x: ThinkingLevel enum (MINIMAL, LOW, MEDIUM, HIGH)
-  // Gemini 2.5: thinkingBudget (numeric token cap, default 8192)
-  const models: OAuthModel[] = [...modelIds]
+  return [...modelIds]
     .sort((a, b) => a.localeCompare(b))
     .map((id) => {
       const model: OAuthModel = { id, name: id, provider: "gemini" };
@@ -200,12 +171,7 @@ async function fetchGeminiModels(): Promise<OAuthModel[]> {
       }
       return model;
     });
-
-  return models;
 }
-
-// ===================== Antigravity =====================
-// Static list from opencode-antigravity-auth + Gemini API dynamic supplement
 
 const ANTIGRAVITY_KNOWN_MODELS: OAuthModel[] = [
   { id: "antigravity-gemini-3-pro", name: "Gemini 3 Pro (Antigravity)", provider: "antigravity" },
@@ -234,7 +200,6 @@ async function fetchAntigravityModels(): Promise<OAuthModel[]> {
 
   const models = [...ANTIGRAVITY_KNOWN_MODELS];
 
-  // Supplement with dynamic Gemini API models
   try {
     const accessToken = await getAntigravityAccessToken();
     const response = await fetch(
@@ -255,7 +220,6 @@ async function fetchAntigravityModels(): Promise<OAuthModel[]> {
         for (const m of data.models) {
           const id = m.name?.replace("models/", "") || m.name;
           if (!id || knownIds.has(id)) continue;
-          // Only include models that support content generation
           const methods = Array.isArray(m.supportedGenerationMethods) ? m.supportedGenerationMethods : [];
           if (!methods.includes("generateContent")) continue;
           models.push({
@@ -267,7 +231,7 @@ async function fetchAntigravityModels(): Promise<OAuthModel[]> {
       }
     }
   } catch {
-    // Known models are sufficient
+    // Known models are sufficient if API is unavailable
   }
 
   return models;

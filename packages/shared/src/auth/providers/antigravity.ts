@@ -6,7 +6,6 @@
  * Credentials are from the opencode-antigravity-auth npm package.
  * Per Google's docs: "the client secret is obviously not treated as a secret"
  * for installed applications.
- * See: https://developers.google.com/identity/protocols/oauth2#installed
  */
 
 import type { OAuthProviderConfig, OAuthToken } from "../types";
@@ -14,7 +13,6 @@ import { startAuthCodeLogin } from "../oauth/authorizationCode";
 import { getToken, saveToken, isTokenExpired, calculateExpiry } from "../tokenStore";
 import { refreshAccessToken } from "../oauth/tokenRefresh";
 
-// Official Antigravity OAuth credentials (from opencode-antigravity-auth)
 export const ANTIGRAVITY_OAUTH_CONFIG: OAuthProviderConfig = {
   name: "antigravity",
   clientId: "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com",
@@ -37,7 +35,6 @@ export const ANTIGRAVITY_OAUTH_CONFIG: OAuthProviderConfig = {
   },
 };
 
-// Production daily endpoint -- what the official Antigravity app uses
 const ANTIGRAVITY_ENDPOINT_DAILY_PROD = "https://daily-cloudcode-pa.googleapis.com";
 
 // Endpoints tried in order when fetching the project ID
@@ -50,10 +47,6 @@ const ANTIGRAVITY_LOAD_ENDPOINTS = [
 
 const ANTIGRAVITY_DEFAULT_PROJECT_ID = "";
 
-/**
- * Fetch the project ID from the Cloud Code Assist API.
- * Tries each endpoint in order; returns default empty string on failure.
- */
 async function fetchProjectId(accessToken: string): Promise<string> {
   const headers = {
     Authorization: `Bearer ${accessToken}`,
@@ -68,16 +61,15 @@ async function fetchProjectId(accessToken: string): Promise<string> {
 
   for (const baseEndpoint of ANTIGRAVITY_LOAD_ENDPOINTS) {
     try {
-      const url = `${baseEndpoint}/v1internal:loadCodeAssist`;
-      const response = await fetch(url, {
+      const response = await fetch(`${baseEndpoint}/v1internal:loadCodeAssist`, {
         method: "POST",
         headers,
         body: JSON.stringify({
           metadata: {
             // Use numeric protobuf enum values (string names cause 400)
-            ideType: 9,    // ANTIGRAVITY
-            platform: 2,   // MACOS
-            pluginType: 2, // GEMINI
+            ideType: 9,
+            platform: 2,
+            pluginType: 2,
           },
         }),
         signal: AbortSignal.timeout(10000),
@@ -100,9 +92,6 @@ async function fetchProjectId(accessToken: string): Promise<string> {
   return ANTIGRAVITY_DEFAULT_PROJECT_ID;
 }
 
-/**
- * Start Antigravity login via Google OAuth.
- */
 export async function startAntigravityLogin(): Promise<{
   authUrl: string;
   waitForAuth: () => Promise<OAuthToken>;
@@ -115,9 +104,7 @@ export async function startAntigravityLogin(): Promise<{
   });
 }
 
-/**
- * Parse the pipe-separated refresh string into { refreshToken, projectId }.
- */
+/** Parse the pipe-separated refresh string into { refreshToken, projectId }. */
 function parseRefreshParts(refresh: string): { refreshToken: string; projectId: string } {
   const [refreshToken = "", projectId = ""] = (refresh || "").split("|");
   return { refreshToken, projectId: projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID };
@@ -125,12 +112,13 @@ function parseRefreshParts(refresh: string): { refreshToken: string; projectId: 
 
 /**
  * Get a valid Antigravity access token, refreshing if expired.
+ * Custom refresh flow: parses pipe-separated refresh string and re-fetches project ID.
  */
 export async function getAntigravityAccessToken(): Promise<string> {
   const token = await getToken("antigravity");
   if (!token || token.type !== "oauth") {
     throw new Error(
-      "Not authenticated with Antigravity. Run `ccr auth login antigravity` first."
+      "Not authenticated with antigravity. Run `ccr auth login antigravity` first."
     );
   }
 
@@ -141,14 +129,13 @@ export async function getAntigravityAccessToken(): Promise<string> {
   const { refreshToken, projectId } = parseRefreshParts(token.refresh);
   if (!refreshToken) {
     throw new Error(
-      "No refresh token available for Antigravity. Run `ccr auth login antigravity` again."
+      "Token expired for antigravity. Run `ccr auth login antigravity` again."
     );
   }
 
   try {
     const newTokens = await refreshAccessToken(ANTIGRAVITY_OAUTH_CONFIG, refreshToken);
 
-    // Re-fetch project ID on refresh (it can change over time)
     let freshProjectId = projectId;
     try {
       freshProjectId = await fetchProjectId(newTokens.access_token) || projectId;
@@ -165,28 +152,21 @@ export async function getAntigravityAccessToken(): Promise<string> {
     await saveToken("antigravity", updatedToken);
     return updatedToken.access;
   } catch (error) {
-    console.error("Failed to refresh Antigravity token:", error);
+    if (error instanceof Error && error.message.includes("Token expired")) throw error;
     throw new Error(
-      "Failed to refresh Antigravity token. Run `ccr auth login antigravity` again."
+      "Failed to refresh antigravity token. Run `ccr auth login antigravity` again."
     );
   }
 }
 
-/**
- * Get the Antigravity project ID from the stored OAuth token.
- */
 export async function getAntigravityProjectId(): Promise<string> {
   const token = await getToken("antigravity");
   if (!token || token.type !== "oauth") {
     return ANTIGRAVITY_DEFAULT_PROJECT_ID;
   }
-  const { projectId } = parseRefreshParts(token.refresh);
-  return projectId;
+  return parseRefreshParts(token.refresh).projectId;
 }
 
-/**
- * Get the Antigravity API base URL (production daily).
- */
 export function getAntigravityBaseUrl(): string {
   return ANTIGRAVITY_ENDPOINT_DAILY_PROD;
 }

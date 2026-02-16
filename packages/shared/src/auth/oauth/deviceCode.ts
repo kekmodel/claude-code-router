@@ -5,9 +5,6 @@
 
 import type { OAuthProviderConfig, DeviceCodeResponse, OAuthTokenResponse } from "../types";
 
-/**
- * Start the Device Code Flow by requesting a device code
- */
 export async function requestDeviceCode(
   config: OAuthProviderConfig
 ): Promise<DeviceCodeResponse> {
@@ -39,10 +36,6 @@ export async function requestDeviceCode(
   return response.json() as Promise<DeviceCodeResponse>;
 }
 
-/**
- * Poll the token endpoint until the user authorizes the device
- * Returns the token response or throws on error/expiry
- */
 export async function pollForDeviceToken(
   config: OAuthProviderConfig,
   deviceCode: string,
@@ -80,10 +73,8 @@ export async function pollForDeviceToken(
     if (data.error) {
       switch (data.error) {
         case "authorization_pending":
-          // User hasn't authorized yet, keep polling
           continue;
         case "slow_down":
-          // Increase interval
           await new Promise((resolve) => setTimeout(resolve, 5000));
           continue;
         case "expired_token":

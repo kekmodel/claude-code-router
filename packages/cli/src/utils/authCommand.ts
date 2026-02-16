@@ -46,22 +46,80 @@ Examples:
   ccr auth status
 `;
 
+// Auth Code provider configurations (Copilot uses Device Code Flow separately)
+const AUTH_CODE_PROVIDERS: Record<string, {
+  label: string;
+  startLogin: () => Promise<{ authUrl: string; waitForAuth: () => Promise<any> }>;
+  description?: string;
+  configExample: string;
+}> = {
+  codex: {
+    label: "OpenAI Codex",
+    startLogin: startCodexLogin,
+    description: "Requires a ChatGPT Plus/Pro subscription.",
+    configExample: `
+  {
+    "name": "codex",
+    "api_base_url": "https://api.openai.com",
+    "auth_type": "oauth",
+    "oauth_provider": "codex",
+    "models": ["gpt-4o", "o3-mini", "codex-mini"]
+  }
+`,
+  },
+  gemini: {
+    label: "Google Gemini",
+    startLogin: startGeminiLogin,
+    configExample: `
+  {
+    "name": "gemini",
+    "api_base_url": "https://generativelanguage.googleapis.com",
+    "auth_type": "oauth",
+    "oauth_provider": "gemini",
+    "models": ["gemini-2.5-pro", "gemini-2.5-flash"]
+  }
+`,
+  },
+  antigravity: {
+    label: "Antigravity",
+    startLogin: startAntigravityLogin,
+    description: "Antigravity provides access to both Gemini and Claude models.",
+    configExample: `
+  {
+    "name": "antigravity",
+    "api_base_url": "https://daily-cloudcode-pa.sandbox.googleapis.com",
+    "auth_type": "oauth",
+    "oauth_provider": "antigravity",
+    "models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro", "gemini-3-flash",
+               "claude-sonnet-4-5", "claude-sonnet-4-5-thinking", "claude-opus-4-6-thinking"]
+  }
+`,
+  },
+};
+
+/**
+ * Read server connection config for API calls
+ */
+async function getServerFetchConfig(): Promise<{ port: number; headers: Record<string, string> }> {
+  const config = await readConfigFile();
+  const port = config.PORT || 3456;
+  const apiKey = config.APIKEY || "";
+  return {
+    port,
+    headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+  };
+}
+
 /**
  * Try to start an OAuth login via the running CCR server.
  * Returns the authUrl on success, or null if the server is not reachable.
  */
 async function tryServerLogin(provider: string): Promise<string | null> {
   try {
-    const config = await readConfigFile();
-    const port = config.PORT || 3456;
-    const apiKey = config.APIKEY || "";
-    const url = `http://127.0.0.1:${port}/api/auth/login/${provider}`;
-
-    const response = await fetch(url, {
+    const { port, headers } = await getServerFetchConfig();
+    const response = await fetch(`http://127.0.0.1:${port}/api/auth/login/${provider}`, {
       method: "POST",
-      headers: {
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      },
+      headers,
       signal: AbortSignal.timeout(3000),
     });
 
@@ -78,16 +136,14 @@ async function tryServerLogin(provider: string): Promise<string | null> {
  * Returns true when authenticated, throws on timeout.
  */
 async function pollAuthStatus(provider: string, timeoutMs = 300_000): Promise<void> {
-  const config = await readConfigFile();
-  const port = config.PORT || 3456;
-  const apiKey = config.APIKEY || "";
+  const { port, headers } = await getServerFetchConfig();
   const url = `http://127.0.0.1:${port}/api/auth/status/${provider}`;
   const start = Date.now();
 
   while (Date.now() - start < timeoutMs) {
     try {
       const response = await fetch(url, {
-        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+        headers,
         signal: AbortSignal.timeout(3000),
       });
       if (response.ok) {
@@ -184,23 +240,30 @@ export async function handleAuthCommand(args: string[]): Promise<void> {
  * Login to an OAuth provider
  */
 async function handleLogin(provider: string): Promise<void> {
-  switch (provider) {
-    case "copilot":
-      await loginCopilot();
-      break;
-    case "codex":
-      await loginCodex();
-      break;
-    case "gemini":
-      await loginGemini();
-      break;
-    case "antigravity":
-      await loginAntigravity();
-      break;
-    default:
-      console.error(`Unknown OAuth provider: ${provider}`);
-      console.log("Available providers:", getAvailableOAuthProviders().join(", "));
-      process.exit(1);
+  // Copilot uses Device Code Flow — fundamentally different from Auth Code providers
+  if (provider === "copilot") {
+    await loginCopilot();
+    return;
+  }
+
+  const providerConfig = AUTH_CODE_PROVIDERS[provider];
+  if (!providerConfig) {
+    console.error(`Unknown OAuth provider: ${provider}`);
+    console.log("Available providers:", getAvailableOAuthProviders().join(", "));
+    process.exit(1);
+  }
+
+  const { label, startLogin, description, configExample } = providerConfig;
+  console.log(`Authenticating with ${label}...\n`);
+  if (description) console.log(`${description}\n`);
+
+  try {
+    await loginWithAuthCode(provider, startLogin);
+    console.log(`\nYou can now use ${label} models in your config:`);
+    console.log(configExample);
+  } catch (error: any) {
+    console.error("Authentication failed:", error.message);
+    process.exit(1);
   }
 }
 
@@ -217,9 +280,7 @@ async function loginCopilot(): Promise<void> {
     console.log(`  URL:  ${verificationUri}`);
     console.log(`  Code: ${userCode}\n`);
 
-    // Try to open browser automatically
     openBrowser(verificationUri);
-
     console.log("Waiting for authorization...");
 
     const token = await waitForAuth();
@@ -234,85 +295,6 @@ async function loginCopilot(): Promise<void> {
     "auth_type": "oauth",
     "oauth_provider": "copilot",
     "models": ["gpt-4o", "claude-sonnet-4-5"]
-  }
-`);
-  } catch (error: any) {
-    console.error("Authentication failed:", error.message);
-    process.exit(1);
-  }
-}
-
-/**
- * OpenAI Codex login via Authorization Code + PKCE.
- * Delegates to the running CCR server when possible so that
- * the WebUI and CLI share a single callback server.
- */
-async function loginCodex(): Promise<void> {
-  console.log("Authenticating with OpenAI Codex...\n");
-  console.log("Requires a ChatGPT Plus/Pro subscription.\n");
-
-  try {
-    await loginWithAuthCode("codex", startCodexLogin);
-    console.log("\nYou can now use OpenAI Codex models in your config:");
-    console.log(`
-  {
-    "name": "codex",
-    "api_base_url": "https://api.openai.com",
-    "auth_type": "oauth",
-    "oauth_provider": "codex",
-    "models": ["gpt-4o", "o3-mini", "codex-mini"]
-  }
-`);
-  } catch (error: any) {
-    console.error("Authentication failed:", error.message);
-    process.exit(1);
-  }
-}
-
-/**
- * Google Gemini login via Google OAuth.
- * Delegates to the running CCR server when possible.
- */
-async function loginGemini(): Promise<void> {
-  console.log("Authenticating with Google Gemini...\n");
-
-  try {
-    await loginWithAuthCode("gemini", startGeminiLogin);
-    console.log("\nYou can now use Google Gemini models in your config:");
-    console.log(`
-  {
-    "name": "gemini",
-    "api_base_url": "https://generativelanguage.googleapis.com",
-    "auth_type": "oauth",
-    "oauth_provider": "gemini",
-    "models": ["gemini-2.5-pro", "gemini-2.5-flash"]
-  }
-`);
-  } catch (error: any) {
-    console.error("Authentication failed:", error.message);
-    process.exit(1);
-  }
-}
-
-/**
- * Antigravity login via Google OAuth.
- * Delegates to the running CCR server when possible.
- */
-async function loginAntigravity(): Promise<void> {
-  console.log("Authenticating with Antigravity...\n");
-  console.log("Antigravity provides access to both Gemini and Claude models.\n");
-
-  try {
-    await loginWithAuthCode("antigravity", startAntigravityLogin);
-    console.log("\nYou can now use Antigravity models in your config:");
-    console.log(`
-  {
-    "name": "antigravity",
-    "api_base_url": "https://daily-cloudcode-pa.sandbox.googleapis.com",
-    "auth_type": "oauth",
-    "oauth_provider": "antigravity",
-    "models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro", "gemini-3-flash",
-               "claude-sonnet-4-5", "claude-sonnet-4-5-thinking", "claude-opus-4-6-thinking"]
   }
 `);
   } catch (error: any) {

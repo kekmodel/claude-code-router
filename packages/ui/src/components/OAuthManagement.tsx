@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { ArrowLeft, Loader2, LogIn, LogOut, KeyRound, ExternalLink, Copy, Check, List } from "lucide-react";
 import { Toast } from "@/components/ui/toast";
-import type { OAuthProviderInfo, OAuthLoginResponse } from "@/types";
+import type { OAuthProviderInfo, OAuthLoginResponse, OAuthModel } from "@/types";
 
 export function OAuthManagement() {
   const { t } = useTranslation();
@@ -38,7 +38,7 @@ export function OAuthManagement() {
   // Models dialog state
   const [modelsDialogOpen, setModelsDialogOpen] = useState(false);
   const [modelsProvider, setModelsProvider] = useState<string | null>(null);
-  const [models, setModels] = useState<Array<{ id: string; name?: string; reasoningLevels?: string[]; defaultReasoningLevel?: string; plans?: string[] }>>([]);
+  const [models, setModels] = useState<OAuthModel[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
 
   const handleGoBack = () => {

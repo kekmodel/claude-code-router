@@ -84,28 +84,22 @@ export class OpenAIResponsesTransformer implements Transformer {
 
     const input: any[] = [];
 
-    const systemMessages = request.messages.filter(
+    const defaultInstructions = "You are a helpful assistant.";
+    const systemMessage = request.messages.find(
       (msg) => msg.role === "system"
     );
-    if (systemMessages.length > 0) {
-      const firstSystem = systemMessages[0];
-      if (Array.isArray(firstSystem.content)) {
-        const texts: string[] = [];
-        firstSystem.content.forEach((item) => {
-          let text = "";
-          if (typeof item === "string") {
-            text = item;
-          } else if (item && typeof item === "object" && "text" in item) {
-            text = (item as { text: string }).text;
-          }
-          if (text) texts.push(text);
-        });
-        (request as any).instructions = texts.join("\n") || "You are a helpful assistant.";
-      } else {
-        (request as any).instructions = firstSystem.content || "You are a helpful assistant.";
-      }
+    if (!systemMessage) {
+      (request as any).instructions = defaultInstructions;
+    } else if (Array.isArray(systemMessage.content)) {
+      const text = systemMessage.content
+        .map((item) =>
+          typeof item === "string" ? item : (item as any)?.text || ""
+        )
+        .filter(Boolean)
+        .join("\n");
+      (request as any).instructions = text || defaultInstructions;
     } else {
-      (request as any).instructions = "You are a helpful assistant.";
+      (request as any).instructions = systemMessage.content || defaultInstructions;
     }
 
     request.messages.forEach((message) => {
@@ -634,7 +628,6 @@ export class OpenAIResponsesTransformer implements Transformer {
     }
 
     if (content.type === "image_url") {
-      console.log(content);
       const imagePayload: Record<string, unknown> = {
         type: role === "assistant" ? "output_image" : "input_image",
       };

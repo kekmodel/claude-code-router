@@ -80,6 +80,15 @@ export interface OAuthProviderInfo {
   expiresAt: number | null;
 }
 
+export interface OAuthModel {
+  id: string;
+  name?: string;
+  provider: string;
+  reasoningLevels?: string[];
+  defaultReasoningLevel?: string;
+  plans?: string[];
+}
+
 export interface OAuthLoginResponse {
   flow: 'device_code' | 'authorization_code';
   authUrl?: string;

@@ -182,6 +182,43 @@ export function Router() {
     );
   };
 
+  // Render a model selector field for a routing scenario
+  type ScenarioField = 'default' | 'background' | 'think' | 'longContext' | 'webSearch' | 'image';
+  const renderScenarioField = (field: ScenarioField, label: string, sideContent?: JSX.Element) => {
+    const value = routerConfig[field] || "";
+    const content = (
+      <>
+        <Label>{label}</Label>
+        <div className="flex items-center gap-2">
+          <div className="flex-1">
+            <Combobox
+              options={modelOptions}
+              value={parseRouterValue(value).model}
+              onChange={(v) => handleModelSelect(field, v)}
+              placeholder={t("router.selectModel")}
+              searchPlaceholder={t("router.searchModel")}
+              emptyPlaceholder={t("router.noModelFound")}
+            />
+          </div>
+          {renderReasoningSelect(field, value)}
+        </div>
+      </>
+    );
+
+    if (sideContent) {
+      return (
+        <div className="space-y-2">
+          <div className="flex items-center gap-4">
+            <div className="flex-1">{content}</div>
+            {sideContent}
+          </div>
+        </div>
+      );
+    }
+
+    return <div className="space-y-2">{content}</div>;
+  };
+
   return (
     <Card className="flex h-full flex-col rounded-lg border shadow-sm">
       <CardHeader className="border-b p-4">
@@ -213,131 +250,35 @@ export function Router() {
             />
           </div>
         )}
-        <div className="space-y-2">
-          <Label>{t("router.default")}</Label>
-          <div className="flex items-center gap-2">
-            <div className="flex-1">
-              <Combobox
-                options={modelOptions}
-                value={parseRouterValue(routerConfig.default || "").model}
-                onChange={(value) => handleModelSelect("default", value)}
-                placeholder={t("router.selectModel")}
-                searchPlaceholder={t("router.searchModel")}
-                emptyPlaceholder={t("router.noModelFound")}
-              />
-            </div>
-            {renderReasoningSelect("default", routerConfig.default || "")}
+        {renderScenarioField("default", t("router.default"))}
+        {renderScenarioField("background", t("router.background"))}
+        {renderScenarioField("think", t("router.think"))}
+        {renderScenarioField("longContext", t("router.longContext"),
+          <div className="w-48">
+            <Label>{t("router.longContextThreshold")}</Label>
+            <Input
+              type="number"
+              value={routerConfig.longContextThreshold || 60000}
+              onChange={(e) => handleRouterChange("longContextThreshold", parseInt(e.target.value) || 60000)}
+              placeholder="60000"
+            />
           </div>
-        </div>
-        <div className="space-y-2">
-          <Label>{t("router.background")}</Label>
-          <div className="flex items-center gap-2">
-            <div className="flex-1">
-              <Combobox
-                options={modelOptions}
-                value={parseRouterValue(routerConfig.background || "").model}
-                onChange={(value) => handleModelSelect("background", value)}
-                placeholder={t("router.selectModel")}
-                searchPlaceholder={t("router.searchModel")}
-                emptyPlaceholder={t("router.noModelFound")}
-              />
-            </div>
-            {renderReasoningSelect("background", routerConfig.background || "")}
+        )}
+        {renderScenarioField("webSearch", t("router.webSearch"))}
+        {renderScenarioField("image", `${t("router.image")} (beta)`,
+          <div className="w-48">
+            <Label htmlFor="forceUseImageAgent">{t("router.forceUseImageAgent")}</Label>
+            <select
+              id="forceUseImageAgent"
+              value={config.forceUseImageAgent ? "true" : "false"}
+              onChange={(e) => handleForceUseImageAgentChange(e.target.value === "true")}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="false">{t("common.no")}</option>
+              <option value="true">{t("common.yes")}</option>
+            </select>
           </div>
-        </div>
-        <div className="space-y-2">
-          <Label>{t("router.think")}</Label>
-          <div className="flex items-center gap-2">
-            <div className="flex-1">
-              <Combobox
-                options={modelOptions}
-                value={parseRouterValue(routerConfig.think || "").model}
-                onChange={(value) => handleModelSelect("think", value)}
-                placeholder={t("router.selectModel")}
-                searchPlaceholder={t("router.searchModel")}
-                emptyPlaceholder={t("router.noModelFound")}
-              />
-            </div>
-            {renderReasoningSelect("think", routerConfig.think || "")}
-          </div>
-        </div>
-        <div className="space-y-2">
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <Label>{t("router.longContext")}</Label>
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
-                  <Combobox
-                    options={modelOptions}
-                    value={parseRouterValue(routerConfig.longContext || "").model}
-                    onChange={(value) => handleModelSelect("longContext", value)}
-                    placeholder={t("router.selectModel")}
-                    searchPlaceholder={t("router.searchModel")}
-                    emptyPlaceholder={t("router.noModelFound")}
-                  />
-                </div>
-                {renderReasoningSelect("longContext", routerConfig.longContext || "")}
-              </div>
-            </div>
-            <div className="w-48">
-              <Label>{t("router.longContextThreshold")}</Label>
-              <Input
-                type="number"
-                value={routerConfig.longContextThreshold || 60000}
-                onChange={(e) => handleRouterChange("longContextThreshold", parseInt(e.target.value) || 60000)}
-                placeholder="60000"
-              />
-            </div>
-          </div>
-        </div>
-        <div className="space-y-2">
-          <Label>{t("router.webSearch")}</Label>
-          <div className="flex items-center gap-2">
-            <div className="flex-1">
-              <Combobox
-                options={modelOptions}
-                value={parseRouterValue(routerConfig.webSearch || "").model}
-                onChange={(value) => handleModelSelect("webSearch", value)}
-                placeholder={t("router.selectModel")}
-                searchPlaceholder={t("router.searchModel")}
-                emptyPlaceholder={t("router.noModelFound")}
-              />
-            </div>
-            {renderReasoningSelect("webSearch", routerConfig.webSearch || "")}
-          </div>
-        </div>
-        <div className="space-y-2">
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <Label>{t("router.image")} (beta)</Label>
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
-                  <Combobox
-                    options={modelOptions}
-                    value={parseRouterValue(routerConfig.image || "").model}
-                    onChange={(value) => handleModelSelect("image", value)}
-                    placeholder={t("router.selectModel")}
-                    searchPlaceholder={t("router.searchModel")}
-                    emptyPlaceholder={t("router.noModelFound")}
-                  />
-                </div>
-                {renderReasoningSelect("image", routerConfig.image || "")}
-              </div>
-            </div>
-            <div className="w-48">
-              <Label htmlFor="forceUseImageAgent">{t("router.forceUseImageAgent")}</Label>
-              <select
-                id="forceUseImageAgent"
-                value={config.forceUseImageAgent ? "true" : "false"}
-                onChange={(e) => handleForceUseImageAgentChange(e.target.value === "true")}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <option value="false">{t("common.no")}</option>
-                <option value="true">{t("common.yes")}</option>
-              </select>
-            </div>
-          </div>
-        </div>
+        )}
       </CardContent>
     </Card>
   );

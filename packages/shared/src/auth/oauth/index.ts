@@ -1,3 +1,3 @@
 export { requestDeviceCode, pollForDeviceToken } from './deviceCode';
-export { generatePKCE, startAuthCodeFlow, exchangeCodeForToken } from './authorizationCode';
-export { refreshAccessToken, getValidToken } from './tokenRefresh';
+export { generatePKCE, startAuthCodeFlow, startAuthCodeLogin, exchangeCodeForToken } from './authorizationCode';
+export { refreshAccessToken, getOAuthAccessToken, getValidToken } from './tokenRefresh';

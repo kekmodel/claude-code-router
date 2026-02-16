@@ -10,19 +10,10 @@ import { getAntigravityProjectId } from "@CCR/shared";
 
 /**
  * Antigravity transformer for Google Cloud Code Assist internal API.
- *
- * Uses Gemini CLI header style for better quota distribution. Google's Cloud Code
- * API has separate quota buckets for different client identities:
- * - "Antigravity" headers (ideType=ANTIGRAVITY) -> Antigravity quota
- * - "Gemini CLI" headers (ideType=IDE_UNSPECIFIED) -> Gemini CLI quota (separate, larger)
- *
- * The Gemini CLI style uses `-preview` model suffix instead of `-high`/`-low` tier suffixes.
- * Thinking level is passed via generationConfig.thinkingConfig.thinkingLevel instead.
+ * Uses Gemini CLI headers (IDE_UNSPECIFIED) for better quota distribution.
  */
 export class AntigravityTransformer implements Transformer {
   name = "antigravity";
-
-  // This endpoint is for incoming CCR route matching (not used for outgoing requests)
   endPoint = "/v1internal\\::modelAndAction";
 
   async transformRequestIn(
@@ -45,7 +36,6 @@ export class AntigravityTransformer implements Transformer {
     const action = request.stream
       ? "streamGenerateContent?alt=sse"
       : "generateContent";
-
     const baseUrl = provider.baseUrl.replace(/\/$/, "");
 
     return {
@@ -66,7 +56,8 @@ export class AntigravityTransformer implements Transformer {
           Accept: request.stream ? "text/event-stream" : "application/json",
           "User-Agent": "google-api-nodejs-client/10.3.0",
           "X-Goog-Api-Client": "gl-node/22.17.0",
-          "Client-Metadata": "ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI",
+          "Client-Metadata":
+            "ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI",
         },
       },
     };
@@ -75,8 +66,6 @@ export class AntigravityTransformer implements Transformer {
   transformRequestOut = transformRequestOut;
 
   async transformResponseOut(response: Response): Promise<Response> {
-    // Antigravity wraps responses in { response: {...} } -- unwrap before
-    // passing to the standard Gemini response handler
     const contentType = response.headers.get("Content-Type") || "";
 
     if (contentType.includes("application/json")) {
@@ -145,36 +134,29 @@ export class AntigravityTransformer implements Transformer {
 
 /**
  * Resolve model name for the Cloud Code API.
- *
- * Gemini 3 Pro/Flash models with tier suffixes (-high/-low/-medium) are converted
- * to -preview suffix for the Gemini CLI quota. The thinking level is extracted
- * and returned separately for injection into generationConfig.
- *
- * Examples:
- * - "gemini-3-pro-high"   → { apiModel: "gemini-3-pro-preview", thinkingLevel: "high" }
- * - "gemini-3-pro-low"    → { apiModel: "gemini-3-pro-preview", thinkingLevel: "low" }
- * - "gemini-3-pro"        → { apiModel: "gemini-3-pro-preview", thinkingLevel: undefined }
- * - "gemini-3-flash"      → { apiModel: "gemini-3-flash-preview", thinkingLevel: undefined }
- * - "gemini-3-flash-high" → { apiModel: "gemini-3-flash-preview", thinkingLevel: "high" }
- * - "gemini-2.5-pro"      → { apiModel: "gemini-2.5-pro", thinkingLevel: undefined }
- * - "claude-sonnet-4-5"   → { apiModel: "claude-sonnet-4-5", thinkingLevel: undefined }
+ * Gemini 3 models: strip tier suffix (-high/-low/-medium/-minimal) and add -preview.
  */
-function resolveApiModel(model: string): { apiModel: string; thinkingLevel?: string } {
+function resolveApiModel(model: string): {
+  apiModel: string;
+  thinkingLevel?: string;
+} {
   if (!model.toLowerCase().startsWith("gemini-3")) {
     return { apiModel: model };
   }
 
   const tierMatch = model.match(/-(minimal|low|medium|high)$/i);
   const thinkingLevel = tierMatch?.[1]?.toLowerCase();
-  const baseName = thinkingLevel ? model.replace(/-(minimal|low|medium|high)$/i, "") : model;
-  const apiModel = baseName.endsWith("-preview") ? baseName : `${baseName}-preview`;
+  const baseName = thinkingLevel
+    ? model.replace(/-(minimal|low|medium|high)$/i, "")
+    : model;
+  const apiModel = baseName.endsWith("-preview")
+    ? baseName
+    : `${baseName}-preview`;
 
   return { apiModel, thinkingLevel };
 }
 
-/**
- * Unwrap an Antigravity SSE data line from { response: {...} } to plain {...}
- */
+/** Unwrap an Antigravity SSE data line: { response: {...} } → {...} */
 function unwrapSSELine(line: string): string {
   if (!line.startsWith("data: ")) {
     return line;

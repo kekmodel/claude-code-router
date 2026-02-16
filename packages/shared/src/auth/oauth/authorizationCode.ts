@@ -8,8 +8,7 @@ import { randomBytes, createHash } from "node:crypto";
 import type { OAuthProviderConfig, OAuthTokenResponse, PKCEPair, OAuthToken } from "../types";
 import { saveToken, calculateExpiry } from "../tokenStore";
 
-// Track active flows per provider to reuse when login is triggered multiple times.
-// This prevents state mismatch (reusing the same state/pkce) and port conflicts.
+// Track active flows per provider to prevent state mismatch and port conflicts
 interface ActiveFlow {
   server: Server;
   authUrl: string;
@@ -20,10 +19,9 @@ interface ActiveFlow {
 }
 const activeFlows = new Map<string, ActiveFlow>();
 
-// Auto-cleanup stale flows after 5 minutes
 const FLOW_TIMEOUT_MS = 5 * 60 * 1000;
 
-function cleanupFlow(providerName: string) {
+function cleanupFlow(providerName: string): void {
   const flow = activeFlows.get(providerName);
   if (flow) {
     clearTimeout(flow.timeout);
@@ -32,9 +30,6 @@ function cleanupFlow(providerName: string) {
   }
 }
 
-/**
- * Generate PKCE code verifier and code challenge
- */
 export function generatePKCE(): PKCEPair {
   const codeVerifier = randomBytes(32).toString("base64url");
   const codeChallenge = createHash("sha256")
@@ -45,9 +40,7 @@ export function generatePKCE(): PKCEPair {
 
 /**
  * Start a local HTTP server to receive the OAuth callback.
- * If an active flow already exists for this provider (server still listening),
- * it is reused to prevent state mismatch and port conflicts.
- * Returns the authorization URL, a callback waiter, and the pkce actually in use.
+ * Reuses an active flow if one exists for this provider (prevents port conflicts).
  */
 export async function startAuthCodeFlow(
   config: OAuthProviderConfig,
@@ -63,12 +56,9 @@ export async function startAuthCodeFlow(
     throw new Error(`Authorization URL not configured for provider: ${config.name}`);
   }
 
-  // Reuse existing active flow if the callback server is still listening.
-  // This prevents state mismatch when login is triggered multiple times
-  // (e.g., user clicks login in the UI while a flow is already in progress).
+  // Reuse existing active flow if the callback server is still listening
   const existing = activeFlows.get(config.name);
   if (existing && existing.server.listening) {
-    // Reset the auto-cleanup timeout
     clearTimeout(existing.timeout);
     existing.timeout = setTimeout(() => cleanupFlow(config.name), FLOW_TIMEOUT_MS);
     return {
@@ -79,7 +69,6 @@ export async function startAuthCodeFlow(
     };
   }
 
-  // Clean up stale entry if server is no longer listening
   if (existing) {
     cleanupFlow(config.name);
   }
@@ -89,7 +78,6 @@ export async function startAuthCodeFlow(
   const host = config.callbackHost || "localhost";
   const redirectUri = `http://${host}:${port}${callbackPath}`;
 
-  // Build authorization URL
   const params = new URLSearchParams({
     client_id: config.clientId,
     response_type: "code",
@@ -103,7 +91,6 @@ export async function startAuthCodeFlow(
 
   const authUrl = `${config.authorizationUrl}?${params.toString()}`;
 
-  // Create local callback server
   let resolveCallback: (code: string) => void;
   let rejectCallback: (error: Error) => void;
 
@@ -151,7 +138,6 @@ export async function startAuthCodeFlow(
     }
   });
 
-  // Listen with proper error handling for EADDRINUSE
   await new Promise<void>((resolve, reject) => {
     server.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {
@@ -174,7 +160,6 @@ export async function startAuthCodeFlow(
     }
   };
 
-  // Track the complete flow and set auto-cleanup timeout
   const timeout = setTimeout(() => cleanupFlow(config.name), FLOW_TIMEOUT_MS);
   activeFlows.set(config.name, { server, authUrl, waitForCallback, pkce, state, timeout });
 
@@ -182,14 +167,13 @@ export async function startAuthCodeFlow(
 }
 
 /**
- * High-level Auth Code login: PKCE generation -> auth code flow -> token exchange -> save.
+ * High-level Auth Code login: PKCE → auth code flow → token exchange → save.
  * Providers pass an optional hook to customize the token after exchange.
  */
 export async function startAuthCodeLogin(
   config: OAuthProviderConfig,
   providerName: string,
   options?: {
-    /** Called after token exchange. Return partial OAuthToken fields to merge. */
     onTokensReceived?: (tokens: OAuthTokenResponse) => Promise<Partial<OAuthToken>>;
   }
 ): Promise<{
@@ -225,9 +209,6 @@ export async function startAuthCodeLogin(
   };
 }
 
-/**
- * Exchange authorization code for tokens
- */
 export async function exchangeCodeForToken(
   config: OAuthProviderConfig,
   code: string,

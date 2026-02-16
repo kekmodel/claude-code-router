@@ -1,47 +1,37 @@
-/**
- * Auth token types and OAuth configuration
- */
-
-// OAuth token stored after successful authentication
 export interface OAuthToken {
   type: 'oauth';
   access: string;
   refresh: string;
-  expires: number; // Unix timestamp in milliseconds
+  expires: number;
   accountId?: string;
 }
 
-// API key token (for unified storage)
 export interface ApiKeyToken {
   type: 'api';
   key: string;
 }
 
-// Discriminated union for all token types
 export type AuthToken = OAuthToken | ApiKeyToken;
 
-// Token store file format: provider name → token
 export interface AuthStore {
   [provider: string]: AuthToken;
 }
 
-// OAuth provider configuration
 export interface OAuthProviderConfig {
   name: string;
   clientId: string;
-  clientSecret?: string;       // Required by Google OAuth for installed apps
+  clientSecret?: string;
   scopes?: string[];
-  deviceCodeUrl?: string;      // For Device Code Flow
+  deviceCodeUrl?: string;
   tokenUrl: string;
-  authorizationUrl?: string;   // For Authorization Code Flow
-  callbackPort?: number;       // Local callback server port
-  callbackPath?: string;       // Custom callback path (default: /callback)
-  callbackHost?: string;       // Callback host (default: "localhost", Google OAuth uses "127.0.0.1")
+  authorizationUrl?: string;
+  callbackPort?: number;
+  callbackPath?: string;
+  callbackHost?: string;
   extraHeaders?: Record<string, string>;
   extraParams?: Record<string, string>;
 }
 
-// Device Code Flow response (RFC 8628)
 export interface DeviceCodeResponse {
   device_code: string;
   user_code: string;
@@ -51,7 +41,6 @@ export interface DeviceCodeResponse {
   interval: number;
 }
 
-// OAuth token exchange response
 export interface OAuthTokenResponse {
   access_token: string;
   token_type: string;
@@ -63,7 +52,6 @@ export interface OAuthTokenResponse {
   error_description?: string;
 }
 
-// PKCE pair
 export interface PKCEPair {
   codeVerifier: string;
   codeChallenge: string;
