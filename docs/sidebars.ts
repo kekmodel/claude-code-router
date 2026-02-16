@@ -30,6 +30,7 @@ const sidebars: SidebarsConfig = {
             'cli/commands/status',
             'cli/commands/statusline',
             'cli/commands/preset',
+            'cli/commands/auth',
             'cli/commands/other',
           ],
         },
@@ -106,6 +107,10 @@ const sidebars: SidebarsConfig = {
           },
           items: [
             'server/advanced/custom-router',
+            'server/advanced/oauth',
+            'server/advanced/agents',
+            'server/advanced/web-ui',
+            'server/advanced/logging',
           ],
         },
       ],

@@ -64,11 +64,11 @@ The routing logic determines which model a request should be sent to:
 - **Project-level routing**: Checks `~/.claude/projects/<project-id>/claude-code-router.json`
 - **Custom routing**: Loads custom JavaScript router function via `CUSTOM_ROUTER_PATH`
 - **Built-in scenario routing**:
+  - `default`: Fallback when no other scenario matches
   - `background`: Background tasks (typically lightweight models)
   - `think`: Thinking-intensive tasks (Plan Mode)
   - `longContext`: Long context (exceeds `longContextThreshold` tokens)
   - `webSearch`: Web search tasks
-  - `image`: Image-related tasks
 
 Token calculation uses `tiktoken` (cl100k_base) to estimate request size.
 
@@ -76,7 +76,11 @@ Token calculation uses `tiktoken` (cl100k_base) to estimate request size.
 
 The `@musistudio/llms` package (`packages/core/`) handles request/response transformations. Transformers adapt to different provider API differences:
 
-- Built-in transformers: `anthropic`, `deepseek`, `gemini`, `openrouter`, `groq`, `maxtoken`, `tooluse`, `reasoning`, `enhancetool`, etc.
+- Built-in transformers:
+  - Provider adapters: `anthropic`, `deepseek`, `gemini`, `groq`, `openrouter`, `openai`, `openai.responses`, `cerebras`, `antigravity`, `vercel`, `vertex-claude`, `vertex-gemini`
+  - Request/response modifiers: `maxtoken`, `maxcompletiontokens`, `sampling`, `customparams`, `cleancache`, `streamoptions`
+  - Tool handling: `tooluse`, `enhancetool`
+  - Reasoning: `reasoning`, `forcereasoning`
 - Custom transformers: Load external plugins via `transformers` array in `config.json`
 
 Transformer configuration supports:
@@ -89,6 +93,7 @@ Transformer configuration supports:
 Agents are pluggable feature modules that can:
 - Detect whether to handle a request (`shouldHandle`)
 - Modify requests (`reqHandler`)
+- Handle responses (`resHandler`, optional)
 - Provide custom tools (`tools`)
 
 Built-in agents:
@@ -127,16 +132,17 @@ OAuth support allows providers to authenticate via subscription-based services i
 | Provider | Flow | Port | Notes |
 |----------|------|------|-------|
 | `copilot` | Device Code | N/A | GitHub Copilot, no local server needed |
-| `anthropic` | Auth Code + PKCE | 8086 | Claude Pro/Max subscription, ToS risk |
-| `antigravity` | Google OAuth | 8087 | Google OAuth, requires `client_secret` |
+| `anthropic` | Auth Code + PKCE | 3000 | Claude Pro/Max subscription, ToS risk |
+| `antigravity` | Google OAuth | 51121 | Google OAuth, requires `client_secret` |
 | `codex` | Auth Code + PKCE | 1455 | ChatGPT Plus/Pro, custom callback path `/auth/callback` |
 | `gemini` | Google OAuth | 8088 | Google OAuth, requires `client_secret`, callback `/oauth2callback` |
 
-**Server-side OAuth endpoints** (`packages/server/src/api/authRoutes.ts`):
+**Server-side OAuth endpoints** (`packages/server/src/server.ts`):
 - `GET /api/auth/providers` — list available OAuth providers and their status
 - `POST /api/auth/login/:provider` — start OAuth login flow
 - `POST /api/auth/logout/:provider` — remove stored tokens
-- `GET /api/auth/status` — token status summary
+- `GET /api/auth/status/:provider` — individual provider token status
+- `GET /api/auth/models/:provider` — fetch available models for an OAuth provider
 
 **Provider pipeline** (`packages/server/src/index.ts`):
 - `oauthTokenResolvers` map wires each OAuth provider to its `getAccessToken` function
@@ -165,8 +171,9 @@ Key features:
 - Hot reload requires service restart (`ccr restart`)
 
 Configuration validation:
-- If `Providers` are configured, both `HOST` and `APIKEY` must be set
-- Otherwise listens on `0.0.0.0` without authentication
+- If `Providers` are configured with `APIKEY`, listens on configured host (default `0.0.0.0`)
+- If `Providers` are configured without `APIKEY`, restricts to `127.0.0.1` (local-only access)
+- If no `Providers` are configured, listens on `0.0.0.0` without authentication
 - OAuth providers use `auth_type: "oauth"` + `oauth_provider` instead of `api_key`
 
 ### 7. Logging System
@@ -192,7 +199,8 @@ ccr status     # Show status
 ccr code       # Execute claude command
 ccr model      # Interactive model selection and configuration
 ccr preset     # Manage presets (export, install, list, info, delete)
-ccr activate   # Output shell environment variables (for integration)
+ccr activate   # Output shell environment variables (for integration) (alias: env)
+ccr install    # Install preset from GitHub marketplace
 ccr ui         # Open Web UI
 ccr statusline # Integrated statusline (reads JSON from stdin)
 ccr auth       # OAuth authentication management
@@ -214,7 +222,7 @@ ccr preset export <name>      # Export current configuration as a preset
 ccr preset install <source>   # Install a preset from file, URL, or name
 ccr preset list               # List all installed presets
 ccr preset info <name>        # Show preset information
-ccr preset delete <name>      # Delete a preset
+ccr preset delete <name>      # Delete a preset (aliases: rm, remove)
 ```
 
 ## Subagent Routing
