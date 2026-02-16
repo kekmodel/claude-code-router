@@ -37,28 +37,32 @@ export const ANTIGRAVITY_OAUTH_CONFIG: OAuthProviderConfig = {
   },
 };
 
-// Antigravity API endpoints (fallback order: daily → autopush → prod)
-const ANTIGRAVITY_ENDPOINT_DAILY = "https://daily-cloudcode-pa.sandbox.googleapis.com";
-const ANTIGRAVITY_ENDPOINT_AUTOPUSH = "https://autopush-cloudcode-pa.sandbox.googleapis.com";
+// Antigravity API endpoints
+// Production daily is what the official Antigravity app uses
+const ANTIGRAVITY_ENDPOINT_DAILY_PROD = "https://daily-cloudcode-pa.googleapis.com";
 const ANTIGRAVITY_ENDPOINT_PROD = "https://cloudcode-pa.googleapis.com";
+const ANTIGRAVITY_ENDPOINT_DAILY_SANDBOX = "https://daily-cloudcode-pa.sandbox.googleapis.com";
+const ANTIGRAVITY_ENDPOINT_AUTOPUSH = "https://autopush-cloudcode-pa.sandbox.googleapis.com";
 const ANTIGRAVITY_LOAD_ENDPOINTS = [
+  ANTIGRAVITY_ENDPOINT_DAILY_PROD,
   ANTIGRAVITY_ENDPOINT_PROD,
-  ANTIGRAVITY_ENDPOINT_DAILY,
+  ANTIGRAVITY_ENDPOINT_DAILY_SANDBOX,
   ANTIGRAVITY_ENDPOINT_AUTOPUSH,
 ];
-const ANTIGRAVITY_DEFAULT_PROJECT_ID = "rising-fact-p41fc";
+const ANTIGRAVITY_DEFAULT_PROJECT_ID = "";
 
 /**
- * Fetch the Antigravity project ID from the Cloud Code Assist API
+ * Fetch the Antigravity project ID from the Cloud Code Assist API.
+ * Uses numeric protobuf enum values for ClientMetadata fields.
  */
 async function fetchProjectId(accessToken: string): Promise<string> {
   const headers = {
     Authorization: `Bearer ${accessToken}`,
     "Content-Type": "application/json",
-    "User-Agent": "google-api-nodejs-client/9.15.1",
+    "User-Agent": "antigravity/1.15.8 darwin/arm64",
     "Client-Metadata": JSON.stringify({
       ideType: "ANTIGRAVITY",
-      platform: process.platform === "win32" ? "WINDOWS" : "MACOS",
+      platform: "MACOS",
       pluginType: "GEMINI",
     }),
   };
@@ -71,9 +75,10 @@ async function fetchProjectId(accessToken: string): Promise<string> {
         headers,
         body: JSON.stringify({
           metadata: {
-            ideType: "ANTIGRAVITY",
-            platform: process.platform === "win32" ? "WINDOWS" : "MACOS",
-            pluginType: "GEMINI",
+            // Use numeric protobuf enum values (string names cause 400)
+            ideType: 9,    // ANTIGRAVITY
+            platform: 2,   // MACOS
+            pluginType: 2, // GEMINI
           },
         }),
         signal: AbortSignal.timeout(10000),
@@ -204,8 +209,15 @@ export async function getAntigravityAccessToken(): Promise<string> {
       expires_in?: number;
     };
 
-    // Preserve project ID in the stored refresh string
-    const newRefresh = `${newTokens.refresh_token || refreshToken}|${projectId}`;
+    // Re-fetch project ID on token refresh (it can change over time)
+    let freshProjectId = projectId;
+    try {
+      freshProjectId = await fetchProjectId(newTokens.access_token) || projectId;
+    } catch {
+      // Keep existing project ID if fetch fails
+    }
+
+    const newRefresh = `${newTokens.refresh_token || refreshToken}|${freshProjectId}`;
 
     const updatedToken: OAuthToken = {
       ...token,
@@ -226,8 +238,20 @@ export async function getAntigravityAccessToken(): Promise<string> {
 }
 
 /**
- * Get the Antigravity API base URL (daily sandbox - same as CLIProxy)
+ * Get the Antigravity project ID from stored token
+ */
+export async function getAntigravityProjectId(): Promise<string> {
+  const token = await getToken("antigravity");
+  if (!token || token.type !== "oauth") {
+    return ANTIGRAVITY_DEFAULT_PROJECT_ID;
+  }
+  const { projectId } = parseRefreshParts(token.refresh);
+  return projectId;
+}
+
+/**
+ * Get the Antigravity API base URL (production daily - same as the Antigravity desktop app)
  */
 export function getAntigravityBaseUrl(): string {
-  return ANTIGRAVITY_ENDPOINT_DAILY;
+  return ANTIGRAVITY_ENDPOINT_DAILY_PROD;
 }

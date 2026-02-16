@@ -31,6 +31,7 @@ export {
   ANTIGRAVITY_OAUTH_CONFIG,
   startAntigravityLogin,
   getAntigravityAccessToken,
+  getAntigravityProjectId,
   getAntigravityBaseUrl,
 } from './antigravity';
 

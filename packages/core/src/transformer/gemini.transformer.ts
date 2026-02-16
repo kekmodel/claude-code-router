@@ -19,15 +19,17 @@ export class GeminiTransformer implements Transformer {
       body: buildRequestBody(request),
       config: {
         url: new URL(
-          `./${request.model}:${
+          `./v1beta/models/${request.model}:${
             request.stream ? "streamGenerateContent?alt=sse" : "generateContent"
           }`,
           provider.baseUrl
         ),
-        headers: {
-          "x-goog-api-key": provider.apiKey,
-          Authorization: undefined,
-        },
+        headers: provider.authType === 'oauth'
+          ? {}
+          : {
+              "x-goog-api-key": provider.apiKey,
+              Authorization: undefined,
+            },
       },
     };
   }
