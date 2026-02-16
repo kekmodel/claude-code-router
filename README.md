@@ -51,30 +51,37 @@ Create `~/.claude-code-router/config.json`:
   "API_TIMEOUT_MS": 600000,
   "Providers": [
     {
-      "name": "openrouter",
-      "api_base_url": "https://openrouter.ai/api/v1/chat/completions",
-      "api_key": "$OPENROUTER_API_KEY",
-      "models": ["google/gemini-2.5-pro-preview", "anthropic/claude-sonnet-4"],
-      "transformer": { "use": ["openrouter"] }
+      "name": "codex",
+      "api_base_url": "https://chatgpt.com/backend-api/codex/responses",
+      "auth_type": "oauth",
+      "oauth_provider": "codex",
+      "models": ["gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.1-codex-mini"],
+      "transformer": { "use": ["openai-responses"] }
     },
     {
-      "name": "deepseek",
-      "api_base_url": "https://api.deepseek.com/chat/completions",
-      "api_key": "$DEEPSEEK_API_KEY",
-      "models": ["deepseek-chat", "deepseek-reasoner"],
-      "transformer": {
-        "use": ["deepseek"],
-        "deepseek-chat": { "use": ["tooluse"] }
-      }
+      "name": "copilot",
+      "api_base_url": "https://api.githubcopilot.com",
+      "auth_type": "oauth",
+      "oauth_provider": "copilot",
+      "models": ["claude-opus-4-6", "gpt-4.1", "gpt-5-mini", "gpt-4o"]
+    },
+    {
+      "name": "gemini",
+      "api_base_url": "https://generativelanguage.googleapis.com",
+      "auth_type": "oauth",
+      "oauth_provider": "gemini",
+      "models": ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro"],
+      "transformer": { "use": ["gemini"] }
     }
   ],
   "Router": {
-    "default": "openrouter,anthropic/claude-sonnet-4",
-    "background": "deepseek,deepseek-chat",
-    "think": "deepseek,deepseek-reasoner",
-    "longContext": "openrouter,google/gemini-2.5-pro-preview",
+    "default": "codex,gpt-5.3-codex",
+    "background": "copilot,gpt-5-mini",
+    "think": "codex,gpt-5.3-codex",
+    "longContext": "gemini,gemini-3-pro-preview",
     "longContextThreshold": 60000,
-    "webSearch": "openrouter,google/gemini-2.5-flash"
+    "webSearch": "copilot,gpt-5-mini",
+    "image": "gemini,gemini-3-flash-preview"
   }
 }
 ```

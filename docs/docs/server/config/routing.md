@@ -13,7 +13,7 @@ Set the default model for all requests:
 ```json
 {
   "Router": {
-    "default": "deepseek,deepseek-chat"
+    "default": "codex,gpt-5.3-codex"
   }
 }
 ```
@@ -27,7 +27,7 @@ Route background tasks to a lightweight model:
 ```json
 {
   "Router": {
-    "background": "groq,llama-3.3-70b-versatile"
+    "background": "copilot,gpt-5-mini"
   }
 }
 ```
@@ -39,7 +39,7 @@ Route thinking-intensive tasks to a more capable model:
 ```json
 {
   "Router": {
-    "think": "deepseek,deepseek-chat"
+    "think": "codex,gpt-5.3-codex"
   }
 }
 ```
@@ -51,8 +51,8 @@ Route requests with long context:
 ```json
 {
   "Router": {
-    "longContextThreshold": 100000,
-    "longContext": "gemini,gemini-1.5-pro"
+    "longContextThreshold": 60000,
+    "longContext": "gemini,gemini-3-pro-preview"
   }
 }
 ```
@@ -64,19 +64,19 @@ Route web search tasks:
 ```json
 {
   "Router": {
-    "webSearch": "deepseek,deepseek-chat"
+    "webSearch": "copilot,gpt-5-mini"
   }
 }
 ```
 
 ### Image Tasks
 
-Route image-related tasks:
+Route image-related tasks to a vision-capable model (handled by Agent System):
 
 ```json
 {
   "Router": {
-    "image": "gemini,gemini-1.5-pro"
+    "image": "gemini,gemini-3-flash-preview"
   }
 }
 ```
@@ -90,29 +90,30 @@ When a request fails, you can configure a list of backup models. The system will
 ```json
 {
   "Router": {
-    "default": "deepseek,deepseek-chat",
-    "background": "ollama,qwen2.5-coder:latest",
-    "think": "deepseek,deepseek-reasoner",
-    "longContext": "openrouter,google/gemini-2.5-pro-preview",
+    "default": "codex,gpt-5.3-codex",
+    "background": "copilot,gpt-5-mini",
+    "think": "antigravity,antigravity-claude-opus-4-6-thinking",
+    "longContext": "gemini,gemini-3-pro-preview",
     "longContextThreshold": 60000,
-    "webSearch": "gemini,gemini-2.5-flash"
+    "webSearch": "copilot,gpt-5-mini"
   },
   "fallback": {
     "default": [
-      "aihubmix,Z/glm-4.5",
-      "openrouter,anthropic/claude-sonnet-4"
+      "antigravity,antigravity-gemini-3-pro",
+      "copilot,gpt-4.1"
     ],
     "background": [
-      "ollama,qwen2.5-coder:latest"
+      "copilot,gpt-4o-mini"
     ],
     "think": [
-      "openrouter,anthropic/claude-3.7-sonnet:thinking"
+      "codex,gpt-5.3-codex",
+      "copilot,claude-opus-4-6"
     ],
     "longContext": [
-      "modelscope,Qwen/Qwen3-Coder-480B-A35B-Instruct"
+      "antigravity,antigravity-gemini-3-pro"
     ],
     "webSearch": [
-      "openrouter,anthropic/claude-sonnet-4"
+      "copilot,gpt-4o"
     ]
   }
 }
@@ -140,12 +141,12 @@ When a request fails, you can configure a list of backup models. The system will
 ```json
 {
   "Router": {
-    "default": "openrouter,anthropic/claude-sonnet-4"
+    "default": "codex,gpt-5.3-codex"
   },
   "fallback": {
     "default": [
-      "deepseek,deepseek-chat",
-      "aihubmix,Z/glm-4.5"
+      "antigravity,antigravity-gemini-3-pro",
+      "copilot,gpt-4.1"
     ]
   }
 }
@@ -158,12 +159,12 @@ Automatically switches to backup models when the primary model quota is exhauste
 ```json
 {
   "Router": {
-    "background": "volcengine,deepseek-v3-250324"
+    "background": "copilot,gpt-5-mini"
   },
   "fallback": {
     "background": [
-      "modelscope,Qwen/Qwen3-Coder-480B-A35B-Instruct",
-      "dashscope,qwen3-coder-plus"
+      "gemini,gemini-3-flash-preview",
+      "copilot,gpt-4o-mini"
     ]
   }
 }
@@ -177,10 +178,10 @@ The system logs detailed fallback process:
 
 ```
 [warn] Request failed for default, trying 2 fallback models
-[info] Trying fallback model: aihubmix,Z/glm-4.5
-[warn] Fallback model aihubmix,Z/glm-4.5 failed: API rate limit exceeded
-[info] Trying fallback model: openrouter,anthropic/claude-sonnet-4
-[info] Fallback model openrouter,anthropic/claude-sonnet-4 succeeded
+[info] Trying fallback model: antigravity,antigravity-gemini-3-pro
+[warn] Fallback model antigravity,antigravity-gemini-3-pro failed: API rate limit exceeded
+[info] Trying fallback model: copilot,gpt-4.1
+[info] Fallback model copilot,gpt-4.1 succeeded
 ```
 
 ### Important Notes
@@ -197,7 +198,7 @@ Configure routing per project in `~/.claude/projects/<project-id>/claude-code-ro
 ```json
 {
   "Router": {
-    "default": "groq,llama-3.3-70b-versatile"
+    "default": "copilot,gpt-4.1"
   }
 }
 ```
@@ -217,15 +218,15 @@ module.exports = function(config, context) {
 
   // Custom routing logic
   if (scenario === 'background') {
-    return 'groq,llama-3.3-70b-versatile';
+    return 'copilot,gpt-5-mini';
   }
 
   if (tokenCount > 100000) {
-    return 'gemini,gemini-1.5-pro';
+    return 'gemini,gemini-3-pro-preview';
   }
 
   // Default
-  return 'deepseek,deepseek-chat';
+  return 'codex,gpt-5.3-codex';
 };
 ```
 
@@ -253,5 +254,5 @@ Please help me analyze this code...
 
 ## Next Steps
 
-- [Transformers](/docs/config/transformers) - Apply transformations to requests
-- [Custom Router](/docs/advanced/custom-router) - Advanced custom routing
+- [Transformers](/docs/server/config/transformers) - Apply transformations to requests
+- [Custom Router](/docs/server/advanced/custom-router) - Advanced custom routing
