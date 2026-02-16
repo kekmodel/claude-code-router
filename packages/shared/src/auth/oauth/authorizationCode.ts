@@ -5,7 +5,8 @@
 
 import { createServer, type Server } from "node:http";
 import { randomBytes, createHash } from "node:crypto";
-import type { OAuthProviderConfig, OAuthTokenResponse, PKCEPair } from "../types";
+import type { OAuthProviderConfig, OAuthTokenResponse, PKCEPair, OAuthToken } from "../types";
+import { saveToken, calculateExpiry } from "../tokenStore";
 
 // Track active flows per provider to reuse when login is triggered multiple times.
 // This prevents state mismatch (reusing the same state/pkce) and port conflicts.
@@ -178,6 +179,50 @@ export async function startAuthCodeFlow(
   activeFlows.set(config.name, { server, authUrl, waitForCallback, pkce, state, timeout });
 
   return { authUrl, waitForCallback, server, pkce };
+}
+
+/**
+ * High-level Auth Code login: PKCE generation -> auth code flow -> token exchange -> save.
+ * Providers pass an optional hook to customize the token after exchange.
+ */
+export async function startAuthCodeLogin(
+  config: OAuthProviderConfig,
+  providerName: string,
+  options?: {
+    /** Called after token exchange. Return partial OAuthToken fields to merge. */
+    onTokensReceived?: (tokens: OAuthTokenResponse) => Promise<Partial<OAuthToken>>;
+  }
+): Promise<{
+  authUrl: string;
+  waitForAuth: () => Promise<OAuthToken>;
+}> {
+  const pkce = generatePKCE();
+  const state = randomBytes(16).toString("hex");
+
+  const { authUrl, waitForCallback, pkce: activePkce } = await startAuthCodeFlow(
+    config,
+    pkce,
+    state
+  );
+
+  return {
+    authUrl,
+    waitForAuth: async () => {
+      const code = await waitForCallback();
+      const tokens = await exchangeCodeForToken(config, code, activePkce.codeVerifier);
+
+      const oauthToken: OAuthToken = {
+        type: "oauth",
+        access: tokens.access_token,
+        refresh: tokens.refresh_token || "",
+        expires: calculateExpiry(tokens.expires_in),
+        ...(options?.onTokensReceived ? await options.onTokensReceived(tokens) : {}),
+      };
+
+      await saveToken(providerName, oauthToken);
+      return oauthToken;
+    },
+  };
 }
 
 /**

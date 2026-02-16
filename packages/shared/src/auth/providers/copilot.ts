@@ -6,7 +6,7 @@
 
 import type { OAuthProviderConfig, OAuthToken } from "../types";
 import { requestDeviceCode, pollForDeviceToken } from "../oauth/deviceCode";
-import { getToken, saveToken } from "../tokenStore";
+import { getToken, saveToken, isTokenExpired } from "../tokenStore";
 
 // GitHub Copilot OAuth configuration
 export const COPILOT_OAUTH_CONFIG: OAuthProviderConfig = {
@@ -24,7 +24,7 @@ const COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token";
 const COPILOT_DEFAULT_BASE_URL = "https://api.githubcopilot.com";
 
 // Copilot editor headers required for API calls
-const COPILOT_EDITOR_HEADERS: Record<string, string> = {
+export const COPILOT_EDITOR_HEADERS: Record<string, string> = {
   "editor-version": "vscode/1.95.0",
   "editor-plugin-version": "copilot/1.250.0",
   "copilot-language-server-version": "1.250.0",
@@ -112,8 +112,7 @@ export async function getCopilotAccessToken(): Promise<string> {
     throw new Error("Not authenticated with GitHub Copilot. Run `ccr auth login copilot` first.");
   }
 
-  // Check if the Copilot token is still valid (with 60s buffer)
-  if (Date.now() < (token.expires - 60_000)) {
+  if (!isTokenExpired(token)) {
     return token.access;
   }
 

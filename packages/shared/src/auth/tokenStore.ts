@@ -105,6 +105,14 @@ export function isTokenExpired(token: AuthToken, bufferMs: number = 60_000): boo
 }
 
 /**
+ * Calculate token expiry timestamp from expires_in seconds.
+ * Defaults to 1 hour if not provided.
+ */
+export function calculateExpiry(expiresIn?: number): number {
+  return Date.now() + (expiresIn || 3600) * 1000;
+}
+
+/**
  * Get a valid access token for a provider, returning null if expired
  */
 export async function getValidAccessToken(provider: string): Promise<string | null> {

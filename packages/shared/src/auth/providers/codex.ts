@@ -5,10 +5,9 @@
  * Requires ChatGPT Plus/Pro subscription.
  */
 
-import { randomBytes } from "node:crypto";
 import type { OAuthProviderConfig, OAuthToken } from "../types";
-import { generatePKCE, startAuthCodeFlow, exchangeCodeForToken } from "../oauth/authorizationCode";
-import { getToken, saveToken } from "../tokenStore";
+import { startAuthCodeLogin } from "../oauth/authorizationCode";
+import { getToken, saveToken, isTokenExpired, calculateExpiry } from "../tokenStore";
 import { refreshAccessToken } from "../oauth/tokenRefresh";
 
 export const CODEX_OAUTH_CONFIG: OAuthProviderConfig = {
@@ -48,49 +47,11 @@ export async function startCodexLogin(): Promise<{
   authUrl: string;
   waitForAuth: () => Promise<OAuthToken>;
 }> {
-  const pkce = generatePKCE();
-  const state = randomBytes(16).toString("hex");
-
-  const { authUrl, waitForCallback, server, pkce: activePkce } = await startAuthCodeFlow(
-    CODEX_OAUTH_CONFIG,
-    pkce,
-    state
-  );
-
-  return {
-    authUrl,
-    waitForAuth: async () => {
-      try {
-        const code = await waitForCallback();
-
-        const tokens = await exchangeCodeForToken(
-          CODEX_OAUTH_CONFIG,
-          code,
-          activePkce.codeVerifier
-        );
-
-        // Use access_token directly as the API credential
-        const accountId = tokens.id_token
-          ? extractAccountId(tokens.id_token)
-          : undefined;
-
-        const oauthToken: OAuthToken = {
-          type: "oauth",
-          access: tokens.access_token,
-          refresh: tokens.refresh_token || "",
-          expires: tokens.expires_in
-            ? Date.now() + tokens.expires_in * 1000
-            : Date.now() + 3600 * 1000, // Default 1 hour
-          accountId,
-        };
-
-        await saveToken("codex", oauthToken);
-        return oauthToken;
-      } finally {
-        server.close();
-      }
-    },
-  };
+  return startAuthCodeLogin(CODEX_OAUTH_CONFIG, "codex", {
+    onTokensReceived: async (tokens) => ({
+      accountId: tokens.id_token ? extractAccountId(tokens.id_token) : undefined,
+    }),
+  });
 }
 
 /**
@@ -104,40 +65,32 @@ export async function getCodexAccessToken(): Promise<string> {
     );
   }
 
-  // Check if token is still valid (with 60s buffer)
-  if (Date.now() < token.expires - 60_000) {
+  if (!isTokenExpired(token)) {
     return token.access;
   }
 
-  // Token expired, try to refresh
-  if (token.refresh) {
-    try {
-      const newTokens = await refreshAccessToken(
-        CODEX_OAUTH_CONFIG,
-        token.refresh
-      );
-
-      const updatedToken: OAuthToken = {
-        ...token,
-        access: newTokens.access_token,
-        refresh: newTokens.refresh_token || token.refresh,
-        expires: newTokens.expires_in
-          ? Date.now() + newTokens.expires_in * 1000
-          : Date.now() + 3600 * 1000,
-      };
-      await saveToken("codex", updatedToken);
-      return updatedToken.access;
-    } catch (error) {
-      console.error("Failed to refresh OpenAI Codex token:", error);
-      throw new Error(
-        "Failed to refresh OpenAI Codex token. Run `ccr auth login codex` again."
-      );
-    }
+  if (!token.refresh) {
+    throw new Error(
+      "OpenAI Codex token expired and no refresh token available. Run `ccr auth login codex` again."
+    );
   }
 
-  throw new Error(
-    "OpenAI Codex token expired and no refresh token available. Run `ccr auth login codex` again."
-  );
+  try {
+    const newTokens = await refreshAccessToken(CODEX_OAUTH_CONFIG, token.refresh);
+    const updatedToken: OAuthToken = {
+      ...token,
+      access: newTokens.access_token,
+      refresh: newTokens.refresh_token || token.refresh,
+      expires: calculateExpiry(newTokens.expires_in),
+    };
+    await saveToken("codex", updatedToken);
+    return updatedToken.access;
+  } catch (error) {
+    console.error("Failed to refresh OpenAI Codex token:", error);
+    throw new Error(
+      "Failed to refresh OpenAI Codex token. Run `ccr auth login codex` again."
+    );
+  }
 }
 
 /**

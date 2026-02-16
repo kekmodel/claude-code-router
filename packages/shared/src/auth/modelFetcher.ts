@@ -7,7 +7,7 @@
  */
 
 import { getToken } from "./tokenStore";
-import { getCopilotApiToken } from "./providers/copilot";
+import { getCopilotApiToken, COPILOT_EDITOR_HEADERS } from "./providers/copilot";
 import { getAntigravityAccessToken } from "./providers/antigravity";
 
 export interface OAuthModel {
@@ -51,9 +51,7 @@ async function fetchCopilotModels(): Promise<OAuthModel[]> {
   const response = await fetch("https://api.githubcopilot.com/models", {
     headers: {
       Authorization: `Bearer ${copilotToken.token}`,
-      "editor-version": "vscode/1.95.0",
-      "editor-plugin-version": "copilot/1.250.0",
-      "copilot-language-server-version": "1.250.0",
+      ...COPILOT_EDITOR_HEADERS,
       Accept: "application/json",
     },
     signal: AbortSignal.timeout(15000),

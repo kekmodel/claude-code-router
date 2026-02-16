@@ -6,10 +6,9 @@
  * Use at your own risk. This feature may stop working if Anthropic changes their policies.
  */
 
-import { randomBytes } from "node:crypto";
 import type { OAuthProviderConfig, OAuthToken } from "../types";
-import { generatePKCE, startAuthCodeFlow, exchangeCodeForToken } from "../oauth/authorizationCode";
-import { getToken, saveToken } from "../tokenStore";
+import { startAuthCodeLogin } from "../oauth/authorizationCode";
+import { getToken, saveToken, isTokenExpired, calculateExpiry } from "../tokenStore";
 import { refreshAccessToken } from "../oauth/tokenRefresh";
 
 // Anthropic OAuth configuration (from Claude Code CLI)
@@ -33,42 +32,7 @@ export async function startAnthropicLogin(): Promise<{
   authUrl: string;
   waitForAuth: () => Promise<OAuthToken>;
 }> {
-  const pkce = generatePKCE();
-  const state = randomBytes(16).toString("hex");
-
-  const { authUrl, waitForCallback, server, pkce: activePkce } = await startAuthCodeFlow(
-    ANTHROPIC_OAUTH_CONFIG,
-    pkce,
-    state
-  );
-
-  return {
-    authUrl,
-    waitForAuth: async () => {
-      try {
-        const code = await waitForCallback();
-
-        // Exchange code for tokens
-        const tokenResponse = await exchangeCodeForToken(
-          ANTHROPIC_OAUTH_CONFIG,
-          code,
-          activePkce.codeVerifier
-        );
-
-        const oauthToken: OAuthToken = {
-          type: "oauth",
-          access: tokenResponse.access_token,
-          refresh: tokenResponse.refresh_token || "",
-          expires: Date.now() + (tokenResponse.expires_in || 3600) * 1000,
-        };
-
-        await saveToken("anthropic", oauthToken);
-        return oauthToken;
-      } finally {
-        server.close();
-      }
-    },
-  };
+  return startAuthCodeLogin(ANTHROPIC_OAUTH_CONFIG, "anthropic");
 }
 
 /**
@@ -82,12 +46,10 @@ export async function getAnthropicAccessToken(): Promise<string> {
     );
   }
 
-  // Check if token is still valid (with 60s buffer)
-  if (Date.now() < token.expires - 60_000) {
+  if (!isTokenExpired(token)) {
     return token.access;
   }
 
-  // Token expired, try to refresh
   if (!token.refresh) {
     throw new Error(
       "Anthropic token expired and no refresh token available. Run `ccr auth login anthropic` again."
@@ -96,15 +58,13 @@ export async function getAnthropicAccessToken(): Promise<string> {
 
   try {
     const refreshed = await refreshAccessToken(ANTHROPIC_OAUTH_CONFIG, token.refresh);
-
     const updatedToken: OAuthToken = {
       ...token,
       access: refreshed.access_token,
       refresh: refreshed.refresh_token || token.refresh,
-      expires: Date.now() + (refreshed.expires_in || 3600) * 1000,
+      expires: calculateExpiry(refreshed.expires_in),
     };
     await saveToken("anthropic", updatedToken);
-
     return updatedToken.access;
   } catch (error) {
     throw new Error(

@@ -9,10 +9,10 @@
  * See: https://developers.google.com/identity/protocols/oauth2#installed
  */
 
-import { randomBytes } from "node:crypto";
 import type { OAuthProviderConfig, OAuthToken } from "../types";
-import { generatePKCE, startAuthCodeFlow, exchangeCodeForToken } from "../oauth/authorizationCode";
-import { getToken, saveToken } from "../tokenStore";
+import { startAuthCodeLogin } from "../oauth/authorizationCode";
+import { getToken, saveToken, isTokenExpired, calculateExpiry } from "../tokenStore";
+import { refreshAccessToken } from "../oauth/tokenRefresh";
 
 // Official Antigravity OAuth credentials (from opencode-antigravity-auth)
 export const ANTIGRAVITY_OAUTH_CONFIG: OAuthProviderConfig = {
@@ -37,23 +37,22 @@ export const ANTIGRAVITY_OAUTH_CONFIG: OAuthProviderConfig = {
   },
 };
 
-// Antigravity API endpoints
-// Production daily is what the official Antigravity app uses
+// Production daily endpoint -- what the official Antigravity app uses
 const ANTIGRAVITY_ENDPOINT_DAILY_PROD = "https://daily-cloudcode-pa.googleapis.com";
-const ANTIGRAVITY_ENDPOINT_PROD = "https://cloudcode-pa.googleapis.com";
-const ANTIGRAVITY_ENDPOINT_DAILY_SANDBOX = "https://daily-cloudcode-pa.sandbox.googleapis.com";
-const ANTIGRAVITY_ENDPOINT_AUTOPUSH = "https://autopush-cloudcode-pa.sandbox.googleapis.com";
+
+// Endpoints tried in order when fetching the project ID
 const ANTIGRAVITY_LOAD_ENDPOINTS = [
   ANTIGRAVITY_ENDPOINT_DAILY_PROD,
-  ANTIGRAVITY_ENDPOINT_PROD,
-  ANTIGRAVITY_ENDPOINT_DAILY_SANDBOX,
-  ANTIGRAVITY_ENDPOINT_AUTOPUSH,
+  "https://cloudcode-pa.googleapis.com",
+  "https://daily-cloudcode-pa.sandbox.googleapis.com",
+  "https://autopush-cloudcode-pa.sandbox.googleapis.com",
 ];
+
 const ANTIGRAVITY_DEFAULT_PROJECT_ID = "";
 
 /**
- * Fetch the Antigravity project ID from the Cloud Code Assist API.
- * Uses numeric protobuf enum values for ClientMetadata fields.
+ * Fetch the project ID from the Cloud Code Assist API.
+ * Tries each endpoint in order; returns default empty string on failure.
  */
 async function fetchProjectId(accessToken: string): Promise<string> {
   const headers = {
@@ -102,59 +101,22 @@ async function fetchProjectId(accessToken: string): Promise<string> {
 }
 
 /**
- * Start Antigravity login via Google OAuth
+ * Start Antigravity login via Google OAuth.
  */
 export async function startAntigravityLogin(): Promise<{
   authUrl: string;
   waitForAuth: () => Promise<OAuthToken>;
 }> {
-  const pkce = generatePKCE();
-  const state = randomBytes(16).toString("hex");
-
-  const { authUrl, waitForCallback, server, pkce: activePkce } = await startAuthCodeFlow(
-    ANTIGRAVITY_OAUTH_CONFIG,
-    pkce,
-    state
-  );
-
-  return {
-    authUrl,
-    waitForAuth: async () => {
-      try {
-        const code = await waitForCallback();
-
-        const tokens = await exchangeCodeForToken(
-          ANTIGRAVITY_OAUTH_CONFIG,
-          code,
-          activePkce.codeVerifier
-        );
-
-        // Fetch project ID from Cloud Code Assist API
-        const projectId = await fetchProjectId(tokens.access_token);
-
-        // Store refresh token with project ID in pipe-separated format
-        const storedRefresh = `${tokens.refresh_token || ""}|${projectId}`;
-
-        const oauthToken: OAuthToken = {
-          type: "oauth",
-          access: tokens.access_token,
-          refresh: storedRefresh,
-          expires: tokens.expires_in
-            ? Date.now() + tokens.expires_in * 1000
-            : Date.now() + 3600 * 1000,
-        };
-
-        await saveToken("antigravity", oauthToken);
-        return oauthToken;
-      } finally {
-        server.close();
-      }
+  return startAuthCodeLogin(ANTIGRAVITY_OAUTH_CONFIG, "antigravity", {
+    onTokensReceived: async (tokens) => {
+      const projectId = await fetchProjectId(tokens.access_token);
+      return { refresh: `${tokens.refresh_token || ""}|${projectId}` };
     },
-  };
+  });
 }
 
 /**
- * Parse stored refresh string into its parts
+ * Parse the pipe-separated refresh string into { refreshToken, projectId }.
  */
 function parseRefreshParts(refresh: string): { refreshToken: string; projectId: string } {
   const [refreshToken = "", projectId = ""] = (refresh || "").split("|");
@@ -162,7 +124,7 @@ function parseRefreshParts(refresh: string): { refreshToken: string; projectId: 
 }
 
 /**
- * Get a valid Antigravity access token, refreshing if needed
+ * Get a valid Antigravity access token, refreshing if expired.
  */
 export async function getAntigravityAccessToken(): Promise<string> {
   const token = await getToken("antigravity");
@@ -172,12 +134,10 @@ export async function getAntigravityAccessToken(): Promise<string> {
     );
   }
 
-  // Check if token is still valid (with 60s buffer)
-  if (Date.now() < token.expires - 60_000) {
+  if (!isTokenExpired(token)) {
     return token.access;
   }
 
-  // Token expired, try to refresh
   const { refreshToken, projectId } = parseRefreshParts(token.refresh);
   if (!refreshToken) {
     throw new Error(
@@ -186,30 +146,9 @@ export async function getAntigravityAccessToken(): Promise<string> {
   }
 
   try {
-    const refreshResponse = await fetch(ANTIGRAVITY_OAUTH_CONFIG.tokenUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: ANTIGRAVITY_OAUTH_CONFIG.clientId,
-        client_secret: ANTIGRAVITY_OAUTH_CONFIG.clientSecret!,
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-      }),
-    });
+    const newTokens = await refreshAccessToken(ANTIGRAVITY_OAUTH_CONFIG, refreshToken);
 
-    if (!refreshResponse.ok) {
-      throw new Error(`Token refresh failed: ${refreshResponse.status}`);
-    }
-
-    const newTokens = await refreshResponse.json() as {
-      access_token: string;
-      refresh_token?: string;
-      expires_in?: number;
-    };
-
-    // Re-fetch project ID on token refresh (it can change over time)
+    // Re-fetch project ID on refresh (it can change over time)
     let freshProjectId = projectId;
     try {
       freshProjectId = await fetchProjectId(newTokens.access_token) || projectId;
@@ -217,15 +156,11 @@ export async function getAntigravityAccessToken(): Promise<string> {
       // Keep existing project ID if fetch fails
     }
 
-    const newRefresh = `${newTokens.refresh_token || refreshToken}|${freshProjectId}`;
-
     const updatedToken: OAuthToken = {
       ...token,
       access: newTokens.access_token,
-      refresh: newRefresh,
-      expires: newTokens.expires_in
-        ? Date.now() + newTokens.expires_in * 1000
-        : Date.now() + 3600 * 1000,
+      refresh: `${newTokens.refresh_token || refreshToken}|${freshProjectId}`,
+      expires: calculateExpiry(newTokens.expires_in),
     };
     await saveToken("antigravity", updatedToken);
     return updatedToken.access;
@@ -238,7 +173,7 @@ export async function getAntigravityAccessToken(): Promise<string> {
 }
 
 /**
- * Get the Antigravity project ID from stored token
+ * Get the Antigravity project ID from the stored OAuth token.
  */
 export async function getAntigravityProjectId(): Promise<string> {
   const token = await getToken("antigravity");
@@ -250,7 +185,7 @@ export async function getAntigravityProjectId(): Promise<string> {
 }
 
 /**
- * Get the Antigravity API base URL (production daily - same as the Antigravity desktop app)
+ * Get the Antigravity API base URL (production daily).
  */
 export function getAntigravityBaseUrl(): string {
   return ANTIGRAVITY_ENDPOINT_DAILY_PROD;

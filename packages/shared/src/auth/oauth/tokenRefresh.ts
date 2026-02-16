@@ -3,7 +3,7 @@
  */
 
 import type { OAuthProviderConfig, OAuthTokenResponse, OAuthToken } from "../types";
-import { getToken, saveToken, isTokenExpired } from "../tokenStore";
+import { getToken, saveToken, isTokenExpired, calculateExpiry } from "../tokenStore";
 
 /**
  * Refresh an OAuth token using the refresh token
@@ -14,9 +14,9 @@ export async function refreshAccessToken(
 ): Promise<OAuthTokenResponse> {
   const params = new URLSearchParams({
     client_id: config.clientId,
+    ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
     grant_type: "refresh_token",
     refresh_token: refreshToken,
-    ...(config.extraParams || {}),
   });
 
   const response = await fetch(config.tokenUrl, {
@@ -79,7 +79,7 @@ export async function getValidToken(
       type: 'oauth',
       access: refreshed.access_token,
       refresh: refreshed.refresh_token || token.refresh, // Keep old refresh token if new one not provided
-      expires: Date.now() + (refreshed.expires_in || 3600) * 1000,
+      expires: calculateExpiry(refreshed.expires_in),
       accountId: token.accountId,
     };
 

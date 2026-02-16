@@ -511,51 +511,37 @@ export const createServer = async (config: any): Promise<any> => {
     try {
       const { provider } = req.params;
 
-      switch (provider) {
-        case "copilot": {
-          const { userCode, verificationUri, waitForAuth } = await startCopilotLogin();
-          // Don't await — let the client poll for status
-          waitForAuth().catch(err => console.error("Copilot auth error:", err.message));
-          return {
-            flow: "device_code",
-            userCode,
-            verificationUri,
-            message: "Visit the URL and enter the code to authenticate.",
-          };
-        }
-        case "codex": {
-          const { authUrl, waitForAuth } = await startCodexLogin();
-          waitForAuth().catch(err => console.error("Codex auth error:", err.message));
-          return {
-            flow: "authorization_code",
-            authUrl,
-            message: "Visit the URL to authenticate with OpenAI Codex.",
-          };
-        }
-        case "gemini": {
-          const { authUrl, waitForAuth } = await startGeminiLogin();
-          waitForAuth().catch(err => console.error("Gemini auth error:", err.message));
-          return {
-            flow: "authorization_code",
-            authUrl,
-            message: "Visit the URL to authenticate with Google for Gemini.",
-          };
-        }
-        case "antigravity": {
-          const { authUrl, waitForAuth } = await startAntigravityLogin();
-          waitForAuth().catch(err => console.error("Antigravity auth error:", err.message));
-          return {
-            flow: "authorization_code",
-            authUrl,
-            message: "Visit the URL to authenticate with Google for Antigravity.",
-          };
-        }
-        default:
-          reply.status(400).send({
-            error: `Unknown OAuth provider: ${provider}`,
-            available: getAvailableOAuthProviders(),
-          });
-          return;
+      // Auth Code providers share the same flow pattern
+      const authCodeProviders: Record<string, {
+        startLogin: () => Promise<{ authUrl: string; waitForAuth: () => Promise<any> }>;
+        message: string;
+      }> = {
+        codex: { startLogin: startCodexLogin, message: "Visit the URL to authenticate with OpenAI Codex." },
+        gemini: { startLogin: startGeminiLogin, message: "Visit the URL to authenticate with Google for Gemini." },
+        antigravity: { startLogin: startAntigravityLogin, message: "Visit the URL to authenticate with Google for Antigravity." },
+      };
+
+      if (provider === "copilot") {
+        const { userCode, verificationUri, waitForAuth } = await startCopilotLogin();
+        // Don't await — let the client poll for status
+        waitForAuth().catch(err => console.error("Copilot auth error:", err.message));
+        return {
+          flow: "device_code",
+          userCode,
+          verificationUri,
+          message: "Visit the URL and enter the code to authenticate.",
+        };
+      } else if (provider in authCodeProviders) {
+        const { startLogin, message } = authCodeProviders[provider];
+        const { authUrl, waitForAuth } = await startLogin();
+        waitForAuth().catch(err => console.error(`${provider} auth error:`, err.message));
+        return { flow: "authorization_code", authUrl, message };
+      } else {
+        reply.status(400).send({
+          error: `Unknown OAuth provider: ${provider}`,
+          available: getAvailableOAuthProviders(),
+        });
+        return;
       }
     } catch (error: any) {
       console.error("Failed to start OAuth login:", error);

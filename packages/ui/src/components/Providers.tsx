@@ -22,9 +22,7 @@ import { ComboInput } from "@/components/ui/combo-input";
 import { api } from "@/lib/api";
 import type { Provider } from "@/types";
 
-interface ProviderType extends Provider {}
-
-const OAUTH_PROVIDER_TEMPLATES: ProviderType[] = [
+const OAUTH_PROVIDER_TEMPLATES: Provider[] = [
   {
     name: "copilot",
     api_base_url: "https://api.githubcopilot.com/chat/completions",
@@ -73,9 +71,9 @@ export function Providers() {
   const [providerParamInputs, setProviderParamInputs] = useState<Record<string, {name: string, value: string}>>({});
   const [modelParamInputs, setModelParamInputs] = useState<Record<string, {name: string, value: string}>>({});
   const [availableTransformers, setAvailableTransformers] = useState<{name: string; endpoint: string | null;}[]>([]);
-  const [editingProviderData, setEditingProviderData] = useState<ProviderType | null>(null);
+  const [editingProviderData, setEditingProviderData] = useState<Provider | null>(null);
   const [isNewProvider, setIsNewProvider] = useState<boolean>(false);
-  const [providerTemplates, setProviderTemplates] = useState<ProviderType[]>([]);
+  const [providerTemplates, setProviderTemplates] = useState<Provider[]>([]);
   const [showApiKey, setShowApiKey] = useState<Record<number, boolean>>({});
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -133,7 +131,7 @@ export function Providers() {
 
 
   const handleAddProvider = () => {
-    const newProvider: ProviderType = { name: "", api_base_url: "", api_key: "", models: [] };
+    const newProvider: Provider = { name: "", api_base_url: "", api_key: "", models: [] };
     setEditingProviderIndex(config.Providers.length);
     setEditingProviderData(newProvider);
     setIsNewProvider(true);
@@ -151,7 +149,7 @@ export function Providers() {
     const actualIndex = validProviders.indexOf(filteredProviders[index]);
     const provider = config.Providers[actualIndex];
     setEditingProviderIndex(actualIndex);
-    setEditingProviderData(JSON.parse(JSON.stringify(provider))); // 深拷贝
+    setEditingProviderData(JSON.parse(JSON.stringify(provider)));
     setIsNewProvider(false);
     // Reset API key visibility and error when opening edit dialog
     setShowApiKey(prev => ({
@@ -516,7 +514,7 @@ export function Providers() {
           newProviderData.name = currentName;
         }
 
-        setEditingProviderData(newProviderData as ProviderType);
+        setEditingProviderData(newProviderData as Provider);
 
         // Auto-fetch models for OAuth providers
         if (newProviderData.auth_type === "oauth" && newProviderData.oauth_provider) {
@@ -720,7 +718,7 @@ export function Providers() {
                           options={(editingProvider.models || []).map((model: string) => ({ label: model, value: model }))}
                           value=""
                           onChange={() => {
-                            // 只更新输入值，不添加模型
+                            // Only update input value, don't add model
                           }}
                           onEnter={(value) => {
                             if (editingProviderIndex !== null) {
@@ -745,16 +743,16 @@ export function Providers() {
                     <Button 
                       onClick={() => {
                         if (hasFetchedModels[editingProviderIndex] && comboInputRef.current) {
-                          // 使用ComboInput的逻辑
+                          // Use ComboInput logic
                           const comboInput = comboInputRef.current as unknown as { getCurrentValue(): string; clearInput(): void };
                           const currentValue = comboInput.getCurrentValue();
                           if (currentValue && currentValue.trim() && editingProviderIndex !== null) {
                             handleAddModel(editingProviderIndex, currentValue.trim());
-                            // 清空ComboInput
+                            // Clear ComboInput
                             comboInput.clearInput();
                           }
                         } else {
-                          // 使用普通Input的逻辑
+                          // Use plain Input logic
                           const input = document.getElementById('models') as HTMLInputElement;
                           if (input && input.value.trim() && editingProviderIndex !== null) {
                             handleAddModel(editingProviderIndex, input.value);
@@ -765,13 +763,6 @@ export function Providers() {
                     >
                       {t("providers.add_model")}
                     </Button>
-                    {/* <Button 
-                      onClick={() => editingProvider && fetchAvailableModels(editingProvider)}
-                      disabled={isFetchingModels}
-                      variant="outline"
-                    >
-                      {isFetchingModels ? t("providers.fetching_models") : t("providers.fetch_available_models")}
-                    </Button> */}
                   </div>
                   <div className="flex flex-wrap gap-2 pt-2">
                     {(editingProvider.models || []).map((model: string, modelIndex: number) => (
@@ -1100,14 +1091,6 @@ export function Providers() {
           )}
           <div className="space-y-3 mt-auto">
             <div className="flex justify-end gap-2">
-              {/* <Button 
-                variant="outline" 
-                onClick={() => editingProvider && testConnectivity(editingProvider)}
-                disabled={isTestingConnectivity || !editingProvider}
-              >
-                <Wifi className="mr-2 h-4 w-4" />
-                {isTestingConnectivity ? t("providers.testing") : t("providers.test_connectivity")}
-              </Button> */}
               <Button onClick={handleSaveProvider}>{t("app.save")}</Button>
             </div>
           </div>

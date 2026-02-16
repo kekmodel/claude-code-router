@@ -105,6 +105,41 @@ async function pollAuthStatus(provider: string, timeoutMs = 300_000): Promise<vo
 }
 
 /**
+ * Shared Auth Code login flow: delegates to running CCR server when possible,
+ * otherwise runs the OAuth flow directly. Handles browser opening and success output.
+ */
+async function loginWithAuthCode(
+  providerName: string,
+  startLogin: () => Promise<{ authUrl: string; waitForAuth: () => Promise<any> }>
+): Promise<void> {
+  const serverAuthUrl = await tryServerLogin(providerName);
+  if (serverAuthUrl) {
+    console.log("Opening browser for authentication...\n");
+    openBrowser(serverAuthUrl);
+    console.log("If the browser didn't open, visit:");
+    console.log(`  ${serverAuthUrl}\n`);
+    console.log("Waiting for authorization...");
+    await pollAuthStatus(providerName);
+  } else {
+    const { authUrl, waitForAuth } = await startLogin();
+    console.log("Opening browser for authentication...\n");
+    openBrowser(authUrl);
+    console.log("If the browser didn't open, visit:");
+    console.log(`  ${authUrl}\n`);
+    console.log("Waiting for authorization...");
+    await waitForAuth();
+  }
+
+  const token = await getToken(providerName);
+  if (token && token.type === "oauth") {
+    console.log("\nAuthentication successful!");
+    console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
+  } else {
+    console.log("\nAuthentication successful!");
+  }
+}
+
+/**
  * Handle auth command dispatch
  */
 export async function handleAuthCommand(args: string[]): Promise<void> {
@@ -217,36 +252,7 @@ async function loginCodex(): Promise<void> {
   console.log("Requires a ChatGPT Plus/Pro subscription.\n");
 
   try {
-    // Try delegating to the running server first
-    const serverAuthUrl = await tryServerLogin("codex");
-    if (serverAuthUrl) {
-      console.log("Opening browser for authentication...\n");
-      openBrowser(serverAuthUrl);
-      console.log("If the browser didn't open, visit:");
-      console.log(`  ${serverAuthUrl}\n`);
-      console.log("Waiting for authorization...");
-
-      await pollAuthStatus("codex");
-    } else {
-      // Fallback: run the OAuth flow directly (server not running)
-      const { authUrl, waitForAuth } = await startCodexLogin();
-
-      console.log("Opening browser for authentication...\n");
-      openBrowser(authUrl);
-      console.log("If the browser didn't open, visit:");
-      console.log(`  ${authUrl}\n`);
-      console.log("Waiting for authorization...");
-
-      await waitForAuth();
-    }
-
-    const token = await getToken("codex");
-    if (token && token.type === "oauth") {
-      console.log("\nAuthentication successful!");
-      console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
-    } else {
-      console.log("\nAuthentication successful!");
-    }
+    await loginWithAuthCode("codex", startCodexLogin);
     console.log("\nYou can now use OpenAI Codex models in your config:");
     console.log(`
   {
@@ -271,34 +277,7 @@ async function loginGemini(): Promise<void> {
   console.log("Authenticating with Google Gemini...\n");
 
   try {
-    const serverAuthUrl = await tryServerLogin("gemini");
-    if (serverAuthUrl) {
-      console.log("Opening browser for Google authentication...\n");
-      openBrowser(serverAuthUrl);
-      console.log("If the browser didn't open, visit:");
-      console.log(`  ${serverAuthUrl}\n`);
-      console.log("Waiting for authorization...");
-
-      await pollAuthStatus("gemini");
-    } else {
-      const { authUrl, waitForAuth } = await startGeminiLogin();
-
-      console.log("Opening browser for Google authentication...\n");
-      openBrowser(authUrl);
-      console.log("If the browser didn't open, visit:");
-      console.log(`  ${authUrl}\n`);
-      console.log("Waiting for authorization...");
-
-      await waitForAuth();
-    }
-
-    const token = await getToken("gemini");
-    if (token && token.type === "oauth") {
-      console.log("\nAuthentication successful!");
-      console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
-    } else {
-      console.log("\nAuthentication successful!");
-    }
+    await loginWithAuthCode("gemini", startGeminiLogin);
     console.log("\nYou can now use Google Gemini models in your config:");
     console.log(`
   {
@@ -324,34 +303,7 @@ async function loginAntigravity(): Promise<void> {
   console.log("Antigravity provides access to both Gemini and Claude models.\n");
 
   try {
-    const serverAuthUrl = await tryServerLogin("antigravity");
-    if (serverAuthUrl) {
-      console.log("Opening browser for Google authentication...\n");
-      openBrowser(serverAuthUrl);
-      console.log("If the browser didn't open, visit:");
-      console.log(`  ${serverAuthUrl}\n`);
-      console.log("Waiting for authorization...");
-
-      await pollAuthStatus("antigravity");
-    } else {
-      const { authUrl, waitForAuth } = await startAntigravityLogin();
-
-      console.log("Opening browser for Google authentication...\n");
-      openBrowser(authUrl);
-      console.log("If the browser didn't open, visit:");
-      console.log(`  ${authUrl}\n`);
-      console.log("Waiting for authorization...");
-
-      await waitForAuth();
-    }
-
-    const token = await getToken("antigravity");
-    if (token && token.type === "oauth") {
-      console.log("\nAuthentication successful!");
-      console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
-    } else {
-      console.log("\nAuthentication successful!");
-    }
+    await loginWithAuthCode("antigravity", startAntigravityLogin);
     console.log("\nYou can now use Antigravity models in your config:");
     console.log(`
   {

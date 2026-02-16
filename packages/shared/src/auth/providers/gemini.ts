@@ -8,10 +8,10 @@
  * See: https://developers.google.com/identity/protocols/oauth2#installed
  */
 
-import { randomBytes } from "node:crypto";
 import type { OAuthProviderConfig, OAuthToken } from "../types";
-import { generatePKCE, startAuthCodeFlow, exchangeCodeForToken } from "../oauth/authorizationCode";
-import { getToken, saveToken } from "../tokenStore";
+import { startAuthCodeLogin } from "../oauth/authorizationCode";
+import { getToken, saveToken, isTokenExpired, calculateExpiry } from "../tokenStore";
+import { refreshAccessToken } from "../oauth/tokenRefresh";
 
 // Official Gemini CLI OAuth credentials (from google-gemini/gemini-cli)
 export const GEMINI_OAUTH_CONFIG: OAuthProviderConfig = {
@@ -41,43 +41,7 @@ export async function startGeminiLogin(): Promise<{
   authUrl: string;
   waitForAuth: () => Promise<OAuthToken>;
 }> {
-  const pkce = generatePKCE();
-  const state = randomBytes(16).toString("hex");
-
-  const { authUrl, waitForCallback, server, pkce: activePkce } = await startAuthCodeFlow(
-    GEMINI_OAUTH_CONFIG,
-    pkce,
-    state
-  );
-
-  return {
-    authUrl,
-    waitForAuth: async () => {
-      try {
-        const code = await waitForCallback();
-
-        const tokens = await exchangeCodeForToken(
-          GEMINI_OAUTH_CONFIG,
-          code,
-          activePkce.codeVerifier
-        );
-
-        const oauthToken: OAuthToken = {
-          type: "oauth",
-          access: tokens.access_token,
-          refresh: tokens.refresh_token || "",
-          expires: tokens.expires_in
-            ? Date.now() + tokens.expires_in * 1000
-            : Date.now() + 3600 * 1000,
-        };
-
-        await saveToken("gemini", oauthToken);
-        return oauthToken;
-      } finally {
-        server.close();
-      }
-    },
-  };
+  return startAuthCodeLogin(GEMINI_OAUTH_CONFIG, "gemini");
 }
 
 /**
@@ -91,59 +55,32 @@ export async function getGeminiAccessToken(): Promise<string> {
     );
   }
 
-  // Check if token is still valid (with 60s buffer)
-  if (Date.now() < token.expires - 60_000) {
+  if (!isTokenExpired(token)) {
     return token.access;
   }
 
-  // Token expired, try to refresh
-  if (token.refresh) {
-    try {
-      const refreshResponse = await fetch(GEMINI_OAUTH_CONFIG.tokenUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json",
-        },
-        body: new URLSearchParams({
-          client_id: GEMINI_OAUTH_CONFIG.clientId,
-          client_secret: GEMINI_OAUTH_CONFIG.clientSecret!,
-          grant_type: "refresh_token",
-          refresh_token: token.refresh,
-        }).toString(),
-      });
-
-      if (!refreshResponse.ok) {
-        throw new Error(`Token refresh failed: ${refreshResponse.status}`);
-      }
-
-      const newTokens = await refreshResponse.json() as {
-        access_token: string;
-        refresh_token?: string;
-        expires_in?: number;
-      };
-
-      const updatedToken: OAuthToken = {
-        ...token,
-        access: newTokens.access_token,
-        refresh: newTokens.refresh_token || token.refresh,
-        expires: newTokens.expires_in
-          ? Date.now() + newTokens.expires_in * 1000
-          : Date.now() + 3600 * 1000,
-      };
-      await saveToken("gemini", updatedToken);
-      return updatedToken.access;
-    } catch (error) {
-      console.error("Failed to refresh Google Gemini token:", error);
-      throw new Error(
-        "Failed to refresh Gemini token. Run `ccr auth login gemini` again."
-      );
-    }
+  if (!token.refresh) {
+    throw new Error(
+      "Gemini token expired and no refresh token available. Run `ccr auth login gemini` again."
+    );
   }
 
-  throw new Error(
-    "Gemini token expired and no refresh token available. Run `ccr auth login gemini` again."
-  );
+  try {
+    const newTokens = await refreshAccessToken(GEMINI_OAUTH_CONFIG, token.refresh);
+    const updatedToken: OAuthToken = {
+      ...token,
+      access: newTokens.access_token,
+      refresh: newTokens.refresh_token || token.refresh,
+      expires: calculateExpiry(newTokens.expires_in),
+    };
+    await saveToken("gemini", updatedToken);
+    return updatedToken.access;
+  } catch (error) {
+    console.error("Failed to refresh Google Gemini token:", error);
+    throw new Error(
+      "Failed to refresh Gemini token. Run `ccr auth login gemini` again."
+    );
+  }
 }
 
 /**
