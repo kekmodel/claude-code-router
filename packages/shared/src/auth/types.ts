@@ -57,6 +57,7 @@ export interface OAuthTokenResponse {
   token_type: string;
   expires_in?: number;
   refresh_token?: string;
+  id_token?: string;
   scope?: string;
   error?: string;
   error_description?: string;

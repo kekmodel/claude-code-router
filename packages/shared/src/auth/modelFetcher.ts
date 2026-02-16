@@ -256,13 +256,15 @@ async function fetchAntigravityModels(): Promise<OAuthModel[]> {
         const knownIds = new Set(models.map((m) => m.id));
         for (const m of data.models) {
           const id = m.name?.replace("models/", "") || m.name;
-          if (id && !knownIds.has(id)) {
-            models.push({
-              id,
-              name: `${m.displayName || id} (Gemini API)`,
-              provider: "antigravity",
-            });
-          }
+          if (!id || knownIds.has(id)) continue;
+          // Only include models that support content generation
+          const methods = Array.isArray(m.supportedGenerationMethods) ? m.supportedGenerationMethods : [];
+          if (!methods.includes("generateContent")) continue;
+          models.push({
+            id,
+            name: `${m.displayName || id} (Gemini API)`,
+            provider: "antigravity",
+          });
         }
       }
     }

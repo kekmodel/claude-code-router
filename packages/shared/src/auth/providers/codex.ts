@@ -1,6 +1,7 @@
 /**
  * OpenAI Codex OAuth provider
  * Uses Authorization Code + PKCE flow to authenticate with OpenAI.
+ * The access_token from the OAuth flow is used directly as the API credential.
  * Requires ChatGPT Plus/Pro subscription.
  */
 
@@ -21,6 +22,26 @@ export const CODEX_OAUTH_CONFIG: OAuthProviderConfig = {
 };
 
 /**
+ * Extract chatgpt_account_id from the id_token JWT claims.
+ * Checks root-level and nested claim paths.
+ */
+function extractAccountId(idToken: string): string | undefined {
+  try {
+    const parts = idToken.split(".");
+    if (parts.length !== 3) return undefined;
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
+    // Check root-level claim
+    if (payload.chatgpt_account_id) return payload.chatgpt_account_id;
+    // Check nested claim path (https://api.openai.com/auth)
+    const authClaims = payload["https://api.openai.com/auth"];
+    if (authClaims?.chatgpt_account_id) return authClaims.chatgpt_account_id;
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Start OpenAI Codex login via Authorization Code + PKCE
  */
 export async function startCodexLogin(): Promise<{
@@ -30,7 +51,7 @@ export async function startCodexLogin(): Promise<{
   const pkce = generatePKCE();
   const state = randomBytes(16).toString("hex");
 
-  const { authUrl, waitForCallback, server } = startAuthCodeFlow(
+  const { authUrl, waitForCallback, server, pkce: activePkce } = await startAuthCodeFlow(
     CODEX_OAUTH_CONFIG,
     pkce,
     state
@@ -45,8 +66,13 @@ export async function startCodexLogin(): Promise<{
         const tokens = await exchangeCodeForToken(
           CODEX_OAUTH_CONFIG,
           code,
-          pkce.codeVerifier
+          activePkce.codeVerifier
         );
+
+        // Use access_token directly as the API credential
+        const accountId = tokens.id_token
+          ? extractAccountId(tokens.id_token)
+          : undefined;
 
         const oauthToken: OAuthToken = {
           type: "oauth",
@@ -55,6 +81,7 @@ export async function startCodexLogin(): Promise<{
           expires: tokens.expires_in
             ? Date.now() + tokens.expires_in * 1000
             : Date.now() + 3600 * 1000, // Default 1 hour
+          accountId,
         };
 
         await saveToken("codex", oauthToken);
@@ -67,7 +94,7 @@ export async function startCodexLogin(): Promise<{
 }
 
 /**
- * Get a valid OpenAI Codex access token, refreshing if needed
+ * Get a valid OpenAI Codex access token, refreshing if needed.
  */
 export async function getCodexAccessToken(): Promise<string> {
   const token = await getToken("codex");

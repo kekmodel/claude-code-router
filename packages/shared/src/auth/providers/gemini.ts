@@ -44,7 +44,7 @@ export async function startGeminiLogin(): Promise<{
   const pkce = generatePKCE();
   const state = randomBytes(16).toString("hex");
 
-  const { authUrl, waitForCallback, server } = startAuthCodeFlow(
+  const { authUrl, waitForCallback, server, pkce: activePkce } = await startAuthCodeFlow(
     GEMINI_OAUTH_CONFIG,
     pkce,
     state
@@ -59,7 +59,7 @@ export async function startGeminiLogin(): Promise<{
         const tokens = await exchangeCodeForToken(
           GEMINI_OAUTH_CONFIG,
           code,
-          pkce.codeVerifier
+          activePkce.codeVerifier
         );
 
         const oauthToken: OAuthToken = {

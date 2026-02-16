@@ -106,8 +106,9 @@
     "api_key_required": "API 密钥为必填项",
     "name_required": "名称为必填项",
     "name_duplicate": "已存在同名供应商",
-    "search": "搜索供应商..."
-
+    "search": "搜索供应商...",
+    "oauth_managed": "由 OAuth 管理 ({{provider}})",
+    "oauth_go_to_settings": "前往 OAuth 设置进行认证"
   },
   "router": {
     "title": "路由",
@@ -124,7 +125,10 @@
     "noModelFound": "未找到模型.",
     "reasoningLevel": "推理等级",
     "reasoningNone": "无",
-    "reasoningAuto": "自动（供应商默认）"
+    "reasoningAuto": "自动（供应商默认）",
+    "preset": "快速填充",
+    "selectPreset": "从供应商一键填充...",
+    "noPresetFound": "暂无可用预设"
   },
   "json_editor": {
     "title": "JSON 编辑器",

@@ -106,8 +106,9 @@
     "api_key_required": "API Key is required",
     "name_required": "Name is required",
     "name_duplicate": "A provider with this name already exists",
-    "search": "Search providers..."
-
+    "search": "Search providers...",
+    "oauth_managed": "Managed by OAuth ({{provider}})",
+    "oauth_go_to_settings": "Go to OAuth settings to authenticate"
   },
   "router": {
     "title": "Router",
@@ -124,7 +125,10 @@
     "noModelFound": "No model found.",
     "reasoningLevel": "Reasoning Level",
     "reasoningNone": "None",
-    "reasoningAuto": "Auto (provider default)"
+    "reasoningAuto": "Auto (provider default)",
+    "preset": "Quick Fill",
+    "selectPreset": "Fill all from a provider...",
+    "noPresetFound": "No presets available"
   },
   "json_editor": {
     "title": "JSON Editor",

@@ -72,6 +72,7 @@ class Server {
   providerService!: ProviderService;
   transformerService: TransformerService;
   tokenizerService: TokenizerService;
+  private _initPromise: Promise<void>;
 
   constructor(options: ServerOptions = {}) {
     const { initialConfig, ...fastifyOptions } = options;
@@ -88,17 +89,25 @@ class Server {
       this.configService,
       this.app.log
     );
-    this.transformerService.initialize().finally(() => {
-      this.providerService = new ProviderService(
-        this.configService,
-        this.transformerService,
-        this.app.log
-      );
-    });
-    // Initialize tokenizer service
-    this.tokenizerService.initialize().catch((error) => {
-      this.app.log.error(`Failed to initialize TokenizerService: ${error}`);
-    });
+    this._initPromise = Promise.all([
+      this.transformerService.initialize().finally(() => {
+        this.providerService = new ProviderService(
+          this.configService,
+          this.transformerService,
+          this.app.log
+        );
+      }),
+      this.tokenizerService.initialize().catch((error) => {
+        this.app.log.error(`Failed to initialize TokenizerService: ${error}`);
+      }),
+    ]).then(() => {});
+  }
+
+  /**
+   * Wait for all async initialization (transformers, providers, tokenizer) to complete.
+   */
+  async waitForInit(): Promise<void> {
+    await this._initPromise;
   }
 
   async register<Options extends FastifyPluginOptions = FastifyPluginOptions>(

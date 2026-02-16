@@ -1,5 +1,10 @@
 /**
  * ccr auth - OAuth authentication management commands
+ *
+ * For Authorization Code providers (codex, gemini, anthropic, antigravity),
+ * the CLI delegates to the running CCR server via API when possible.
+ * This ensures the WebUI and CLI share a single OAuth callback server,
+ * preventing port conflicts and state mismatch issues.
  */
 
 import {
@@ -13,6 +18,7 @@ import {
   isTokenExpired,
   getAvailableOAuthProviders,
 } from "@CCR/shared";
+import { readConfigFile } from ".";
 import { exec } from "child_process";
 
 const AUTH_HELP = `
@@ -39,6 +45,64 @@ Examples:
   ccr auth list
   ccr auth status
 `;
+
+/**
+ * Try to start an OAuth login via the running CCR server.
+ * Returns the authUrl on success, or null if the server is not reachable.
+ */
+async function tryServerLogin(provider: string): Promise<string | null> {
+  try {
+    const config = await readConfigFile();
+    const port = config.PORT || 3456;
+    const apiKey = config.APIKEY || "";
+    const url = `http://127.0.0.1:${port}/api/auth/login/${provider}`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      },
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (!response.ok) return null;
+    const data = (await response.json()) as any;
+    return data.authUrl || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Poll the CCR server for auth status until the provider is authenticated.
+ * Returns true when authenticated, throws on timeout.
+ */
+async function pollAuthStatus(provider: string, timeoutMs = 300_000): Promise<void> {
+  const config = await readConfigFile();
+  const port = config.PORT || 3456;
+  const apiKey = config.APIKEY || "";
+  const url = `http://127.0.0.1:${port}/api/auth/status/${provider}`;
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const response = await fetch(url, {
+        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+        signal: AbortSignal.timeout(3000),
+      });
+      if (response.ok) {
+        const data = (await response.json()) as any;
+        if (data.status === "authenticated" || data.status === "active") {
+          return;
+        }
+      }
+    } catch {
+      // Server may have gone down; keep trying
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  throw new Error("Authentication timed out. Please try again.");
+}
 
 /**
  * Handle auth command dispatch
@@ -144,25 +208,45 @@ async function loginCopilot(): Promise<void> {
 }
 
 /**
- * OpenAI Codex login via Authorization Code + PKCE
+ * OpenAI Codex login via Authorization Code + PKCE.
+ * Delegates to the running CCR server when possible so that
+ * the WebUI and CLI share a single callback server.
  */
 async function loginCodex(): Promise<void> {
   console.log("Authenticating with OpenAI Codex...\n");
   console.log("Requires a ChatGPT Plus/Pro subscription.\n");
 
   try {
-    const { authUrl, waitForAuth } = await startCodexLogin();
+    // Try delegating to the running server first
+    const serverAuthUrl = await tryServerLogin("codex");
+    if (serverAuthUrl) {
+      console.log("Opening browser for authentication...\n");
+      openBrowser(serverAuthUrl);
+      console.log("If the browser didn't open, visit:");
+      console.log(`  ${serverAuthUrl}\n`);
+      console.log("Waiting for authorization...");
 
-    console.log("Opening browser for authentication...\n");
-    openBrowser(authUrl);
-    console.log("If the browser didn't open, visit:");
-    console.log(`  ${authUrl}\n`);
-    console.log("Waiting for authorization...");
+      await pollAuthStatus("codex");
+    } else {
+      // Fallback: run the OAuth flow directly (server not running)
+      const { authUrl, waitForAuth } = await startCodexLogin();
 
-    const token = await waitForAuth();
+      console.log("Opening browser for authentication...\n");
+      openBrowser(authUrl);
+      console.log("If the browser didn't open, visit:");
+      console.log(`  ${authUrl}\n`);
+      console.log("Waiting for authorization...");
 
-    console.log("\nAuthentication successful!");
-    console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
+      await waitForAuth();
+    }
+
+    const token = await getToken("codex");
+    if (token && token.type === "oauth") {
+      console.log("\nAuthentication successful!");
+      console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
+    } else {
+      console.log("\nAuthentication successful!");
+    }
     console.log("\nYou can now use OpenAI Codex models in your config:");
     console.log(`
   {
@@ -180,24 +264,41 @@ async function loginCodex(): Promise<void> {
 }
 
 /**
- * Google Gemini login via Google OAuth
+ * Google Gemini login via Google OAuth.
+ * Delegates to the running CCR server when possible.
  */
 async function loginGemini(): Promise<void> {
   console.log("Authenticating with Google Gemini...\n");
 
   try {
-    const { authUrl, waitForAuth } = await startGeminiLogin();
+    const serverAuthUrl = await tryServerLogin("gemini");
+    if (serverAuthUrl) {
+      console.log("Opening browser for Google authentication...\n");
+      openBrowser(serverAuthUrl);
+      console.log("If the browser didn't open, visit:");
+      console.log(`  ${serverAuthUrl}\n`);
+      console.log("Waiting for authorization...");
 
-    console.log("Opening browser for Google authentication...\n");
-    openBrowser(authUrl);
-    console.log("If the browser didn't open, visit:");
-    console.log(`  ${authUrl}\n`);
-    console.log("Waiting for authorization...");
+      await pollAuthStatus("gemini");
+    } else {
+      const { authUrl, waitForAuth } = await startGeminiLogin();
 
-    const token = await waitForAuth();
+      console.log("Opening browser for Google authentication...\n");
+      openBrowser(authUrl);
+      console.log("If the browser didn't open, visit:");
+      console.log(`  ${authUrl}\n`);
+      console.log("Waiting for authorization...");
 
-    console.log("\nAuthentication successful!");
-    console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
+      await waitForAuth();
+    }
+
+    const token = await getToken("gemini");
+    if (token && token.type === "oauth") {
+      console.log("\nAuthentication successful!");
+      console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
+    } else {
+      console.log("\nAuthentication successful!");
+    }
     console.log("\nYou can now use Google Gemini models in your config:");
     console.log(`
   {
@@ -215,26 +316,42 @@ async function loginGemini(): Promise<void> {
 }
 
 /**
- * Antigravity login via Google OAuth
- * Provides access to both Gemini and Claude models via Cloud Code Assist.
+ * Antigravity login via Google OAuth.
+ * Delegates to the running CCR server when possible.
  */
 async function loginAntigravity(): Promise<void> {
   console.log("Authenticating with Antigravity...\n");
   console.log("Antigravity provides access to both Gemini and Claude models.\n");
 
   try {
-    const { authUrl, waitForAuth } = await startAntigravityLogin();
+    const serverAuthUrl = await tryServerLogin("antigravity");
+    if (serverAuthUrl) {
+      console.log("Opening browser for Google authentication...\n");
+      openBrowser(serverAuthUrl);
+      console.log("If the browser didn't open, visit:");
+      console.log(`  ${serverAuthUrl}\n`);
+      console.log("Waiting for authorization...");
 
-    console.log("Opening browser for Google authentication...\n");
-    openBrowser(authUrl);
-    console.log("If the browser didn't open, visit:");
-    console.log(`  ${authUrl}\n`);
-    console.log("Waiting for authorization...");
+      await pollAuthStatus("antigravity");
+    } else {
+      const { authUrl, waitForAuth } = await startAntigravityLogin();
 
-    const token = await waitForAuth();
+      console.log("Opening browser for Google authentication...\n");
+      openBrowser(authUrl);
+      console.log("If the browser didn't open, visit:");
+      console.log(`  ${authUrl}\n`);
+      console.log("Waiting for authorization...");
 
-    console.log("\nAuthentication successful!");
-    console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
+      await waitForAuth();
+    }
+
+    const token = await getToken("antigravity");
+    if (token && token.type === "oauth") {
+      console.log("\nAuthentication successful!");
+      console.log(`Token expires: ${new Date(token.expires).toLocaleString()}`);
+    } else {
+      console.log("\nAuthentication successful!");
+    }
     console.log("\nYou can now use Antigravity models in your config:");
     console.log(`
   {
@@ -336,12 +453,13 @@ function openBrowser(url: string): void {
   const platform = process.platform;
   let command: string;
 
+  // URL must be quoted to prevent shell from interpreting & as background operator
   if (platform === "win32") {
-    command = `start ${url}`;
+    command = `start "" "${url}"`;
   } else if (platform === "darwin") {
-    command = `open ${url}`;
+    command = `open "${url}"`;
   } else {
-    command = `xdg-open ${url}`;
+    command = `xdg-open "${url}"`;
   }
 
   exec(command, (error) => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -104,6 +104,42 @@ export function Router() {
     handleRouterChange(field, buildRouterValue(model, newReasoningLevel));
   };
 
+  const routerPresets = useMemo(() => {
+    if (routerModels.length === 0) return [];
+
+    const byProvider = new Map<string, RouterModel[]>();
+    for (const m of routerModels) {
+      const list = byProvider.get(m.provider) || [];
+      list.push(m);
+      byProvider.set(m.provider, list);
+    }
+
+    return Array.from(byProvider.entries()).map(([provider, models]) => {
+      const findModel = (keywords: string[]) => {
+        for (const kw of keywords) {
+          const found = models.find(m => m.label.toLowerCase().includes(kw));
+          if (found) {
+            const defaultRL = found.defaultReasoningLevel || "";
+            return buildRouterValue(found.value, defaultRL);
+          }
+        }
+        const fallback = models[0];
+        if (!fallback) return "";
+        return buildRouterValue(fallback.value, fallback.defaultReasoningLevel || "");
+      };
+
+      return {
+        label: provider,
+        value: provider,
+        default: findModel(["sonnet", "4o", "pro", "2.5"]),
+        background: findModel(["haiku", "mini", "flash"]),
+        think: findModel(["sonnet", "o3", "pro", "2.5"]),
+        longContext: findModel(["sonnet", "4o", "pro", "2.5"]),
+        webSearch: findModel(["sonnet", "4o", "pro", "2.5"]),
+      };
+    });
+  }, [routerModels]);
+
   // Fallback: use static config models if API fetch hasn't returned
   const providers = Array.isArray(config.Providers) ? config.Providers : [];
   const fallbackOptions = providers.flatMap((provider) => {
@@ -152,6 +188,31 @@ export function Router() {
         <CardTitle className="text-lg">{t("router.title")}</CardTitle>
       </CardHeader>
       <CardContent className="flex-grow space-y-5 overflow-y-auto p-4">
+        {routerPresets.length > 0 && (
+          <div className="space-y-2">
+            <Label>{t("router.preset")}</Label>
+            <Combobox
+              options={routerPresets.map(p => ({ label: p.label, value: p.value }))}
+              value=""
+              onChange={(value) => {
+                const preset = routerPresets.find(p => p.value === value);
+                if (preset) {
+                  const newRouter = {
+                    ...routerConfig,
+                    default: preset.default,
+                    background: preset.background,
+                    think: preset.think,
+                    longContext: preset.longContext,
+                    webSearch: preset.webSearch,
+                  };
+                  setConfig({ ...config, Router: newRouter });
+                }
+              }}
+              placeholder={t("router.selectPreset")}
+              emptyPlaceholder={t("router.noPresetFound")}
+            />
+          </div>
+        )}
         <div className="space-y-2">
           <Label>{t("router.default")}</Label>
           <div className="flex items-center gap-2">

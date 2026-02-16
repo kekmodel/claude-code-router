@@ -21,6 +21,7 @@ declare module "@musistudio/llms" {
     app: FastifyInstance;
     logger: FastifyBaseLogger;
     start(): Promise<void>;
+    waitForInit(): Promise<void>;
   }
 
   const Server: {

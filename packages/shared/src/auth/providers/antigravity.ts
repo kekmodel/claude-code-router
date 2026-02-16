@@ -106,7 +106,7 @@ export async function startAntigravityLogin(): Promise<{
   const pkce = generatePKCE();
   const state = randomBytes(16).toString("hex");
 
-  const { authUrl, waitForCallback, server } = startAuthCodeFlow(
+  const { authUrl, waitForCallback, server, pkce: activePkce } = await startAuthCodeFlow(
     ANTIGRAVITY_OAUTH_CONFIG,
     pkce,
     state
@@ -121,7 +121,7 @@ export async function startAntigravityLogin(): Promise<{
         const tokens = await exchangeCodeForToken(
           ANTIGRAVITY_OAUTH_CONFIG,
           code,
-          pkce.codeVerifier
+          activePkce.codeVerifier
         );
 
         // Fetch project ID from Cloud Code Assist API

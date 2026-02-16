@@ -9,6 +9,8 @@ export interface Provider {
   api_key: string;
   models: string[];
   transformer?: ProviderTransformer;
+  auth_type?: string;
+  oauth_provider?: string;
 }
 
 export interface RouterConfig {

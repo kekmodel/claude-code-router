@@ -37,6 +37,7 @@ import AdmZip from "adm-zip";
 
 export const createServer = async (config: any): Promise<any> => {
   const server = new Server(config);
+  await server.waitForInit();
   const app = server.app;
 
   app.register(fastifyMultipart, {
@@ -635,7 +636,14 @@ export const createServer = async (config: any): Promise<any> => {
         const existingValues = new Set(models.map((m) => m.value));
         for (const om of oauthModels) {
           const value = `${p.name},${om.id}`;
-          if (!existingValues.has(value)) {
+          if (existingValues.has(value)) {
+            // Enrich existing static model with reasoning level info
+            const existing = models.find((m) => m.value === value);
+            if (existing && (om.reasoningLevels || om.defaultReasoningLevel)) {
+              existing.reasoningLevels = om.reasoningLevels;
+              existing.defaultReasoningLevel = om.defaultReasoningLevel;
+            }
+          } else {
             models.push({
               value,
               label: `${p.name}, ${om.name || om.id}`,

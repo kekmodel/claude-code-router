@@ -36,7 +36,7 @@ export async function startAnthropicLogin(): Promise<{
   const pkce = generatePKCE();
   const state = randomBytes(16).toString("hex");
 
-  const { authUrl, waitForCallback, server } = startAuthCodeFlow(
+  const { authUrl, waitForCallback, server, pkce: activePkce } = await startAuthCodeFlow(
     ANTHROPIC_OAUTH_CONFIG,
     pkce,
     state
@@ -52,7 +52,7 @@ export async function startAnthropicLogin(): Promise<{
         const tokenResponse = await exchangeCodeForToken(
           ANTHROPIC_OAUTH_CONFIG,
           code,
-          pkce.codeVerifier
+          activePkce.codeVerifier
         );
 
         const oauthToken: OAuthToken = {

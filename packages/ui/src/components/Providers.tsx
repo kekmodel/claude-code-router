@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,8 +24,48 @@ import type { Provider } from "@/types";
 
 interface ProviderType extends Provider {}
 
+const OAUTH_PROVIDER_TEMPLATES: ProviderType[] = [
+  {
+    name: "copilot",
+    api_base_url: "https://api.githubcopilot.com/chat/completions",
+    api_key: "",
+    models: [],
+    auth_type: "oauth",
+    oauth_provider: "copilot",
+    transformer: { use: ["OpenAI"] },
+  },
+  {
+    name: "codex",
+    api_base_url: "https://api.openai.com/v1/responses",
+    api_key: "",
+    models: [],
+    auth_type: "oauth",
+    oauth_provider: "codex",
+    transformer: { use: ["openai-responses"] },
+  },
+  {
+    name: "gemini",
+    api_base_url: "https://generativelanguage.googleapis.com",
+    api_key: "",
+    models: [],
+    auth_type: "oauth",
+    oauth_provider: "gemini",
+    transformer: { use: ["gemini"] },
+  },
+  {
+    name: "antigravity",
+    api_base_url: "https://daily-cloudcode-pa.sandbox.googleapis.com",
+    api_key: "",
+    models: [],
+    auth_type: "oauth",
+    oauth_provider: "antigravity",
+    transformer: { use: ["gemini"] },
+  },
+];
+
 export function Providers() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { config, setConfig } = useConfig();
   const [editingProviderIndex, setEditingProviderIndex] = useState<number | null>(null);
   const [deletingProviderIndex, setDeletingProviderIndex] = useState<number | null>(null);
@@ -145,10 +186,12 @@ export function Providers() {
       return;
     }
     
-    // Validate API key
-    if (!editingProviderData.api_key || editingProviderData.api_key.trim() === '') {
-      setApiKeyError(t("providers.api_key_required"));
-      return;
+    // Skip API key validation for OAuth providers
+    if (editingProviderData.auth_type !== "oauth") {
+      if (!editingProviderData.api_key || editingProviderData.api_key.trim() === '') {
+        setApiKeyError(t("providers.api_key_required"));
+        return;
+      }
     }
     
     // Clear errors if validation passes
@@ -472,8 +515,23 @@ export function Providers() {
         if (!isNewProvider && currentName) {
           newProviderData.name = currentName;
         }
-        
+
         setEditingProviderData(newProviderData as ProviderType);
+
+        // Auto-fetch models for OAuth providers
+        if (newProviderData.auth_type === "oauth" && newProviderData.oauth_provider) {
+          api.fetchAuthModels(newProviderData.oauth_provider).then((result) => {
+            if (result.models && result.models.length > 0) {
+              const modelIds = result.models.map((m) => m.id);
+              setEditingProviderData((prev) => {
+                if (!prev) return prev;
+                return { ...prev, models: modelIds };
+              });
+            }
+          }).catch(() => {
+            // Not authenticated yet — models stay empty, user can add manually
+          });
+        }
       }
     } catch (e) {
       console.error("Failed to parse template", e);
@@ -566,18 +624,25 @@ export function Providers() {
           </DialogHeader>
           {editingProvider && editingProviderIndex !== null && (
             <div className="space-y-4 p-4 overflow-y-auto flex-grow">
-              {providerTemplates.length > 0 && (
-                <div className="space-y-2">
-                  <Label>{t("providers.import_from_template")}</Label>
-                  <Combobox
-                    options={providerTemplates.map(p => ({ label: p.name, value: JSON.stringify(p) }))}
-                    value=""
-                    onChange={handleTemplateImport}
-                    placeholder={t("providers.select_template")}
-                    emptyPlaceholder={t("providers.no_templates_found")}
-                  />
-                </div>
-              )}
+              <div className="space-y-2">
+                <Label>{t("providers.import_from_template")}</Label>
+                <Combobox
+                  options={[
+                    ...OAUTH_PROVIDER_TEMPLATES.map(p => ({
+                      label: `[OAuth] ${p.name}`,
+                      value: JSON.stringify(p),
+                    })),
+                    ...providerTemplates.map(p => ({
+                      label: p.name,
+                      value: JSON.stringify(p),
+                    })),
+                  ]}
+                  value=""
+                  onChange={handleTemplateImport}
+                  placeholder={t("providers.select_template")}
+                  emptyPlaceholder={t("providers.no_templates_found")}
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="name">{t("providers.name")}</Label>
                 <Input 
@@ -600,40 +665,50 @@ export function Providers() {
                 <Label htmlFor="api_base_url">{t("providers.api_base_url")}</Label>
                 <Input id="api_base_url" value={editingProvider.api_base_url || ''} onChange={(e) => handleProviderChange(editingProviderIndex, 'api_base_url', e.target.value)} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="api_key">{t("providers.api_key")}</Label>
-                <div className="relative">
-                  <Input 
-                    id="api_key" 
-                    type={showApiKey[editingProviderIndex || 0] ? "text" : "password"} 
-                    value={editingProvider.api_key || ''} 
-                    onChange={(e) => handleProviderChange(editingProviderIndex, 'api_key', e.target.value)} 
-                    className={apiKeyError ? "border-red-500" : ""}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-8 w-8"
-                    onClick={() => {
-                      const index = editingProviderIndex || 0;
-                      setShowApiKey(prev => ({
-                        ...prev,
-                        [index]: !prev[index]
-                      }));
-                    }}
-                  >
-                    {showApiKey[editingProviderIndex || 0] ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </Button>
+              {editingProvider.auth_type === "oauth" ? (
+                <div className="space-y-2">
+                  <Label>{t("providers.api_key")}</Label>
+                  <div className="flex items-center gap-2 rounded-md border p-3 bg-muted/50">
+                    <Badge variant="secondary">{t("providers.oauth_managed", { provider: editingProvider.oauth_provider })}</Badge>
+                    <button type="button" onClick={() => { handleCancelAddProvider(); navigate("/oauth"); }} className="text-sm text-blue-600 hover:underline ml-auto">{t("providers.oauth_go_to_settings")}</button>
+                  </div>
                 </div>
-                {apiKeyError && (
-                  <p className="text-sm text-red-500">{apiKeyError}</p>
-                )}
-              </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="api_key">{t("providers.api_key")}</Label>
+                  <div className="relative">
+                    <Input
+                      id="api_key"
+                      type={showApiKey[editingProviderIndex || 0] ? "text" : "password"}
+                      value={editingProvider.api_key || ''}
+                      onChange={(e) => handleProviderChange(editingProviderIndex, 'api_key', e.target.value)}
+                      className={apiKeyError ? "border-red-500" : ""}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 h-8 w-8"
+                      onClick={() => {
+                        const index = editingProviderIndex || 0;
+                        setShowApiKey(prev => ({
+                          ...prev,
+                          [index]: !prev[index]
+                        }));
+                      }}
+                    >
+                      {showApiKey[editingProviderIndex || 0] ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                  {apiKeyError && (
+                    <p className="text-sm text-red-500">{apiKeyError}</p>
+                  )}
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="models">{t("providers.models")}</Label>
                 <div className="space-y-2">

@@ -198,7 +198,12 @@ const getUseModel = async (
     const parsedBg = parseRouterModel(globalRouter.background);
     return { model: parsedBg.model, scenarioType: 'background', reasoningLevel: parsedBg.reasoningLevel };
   }
-  // The priority of websearch must be higher than thinking.
+  // Think (Plan Mode) takes priority — reasoning capability matters more than web search tool support
+  if (req.body.thinking && Router?.think) {
+    req.log.info(`Using think model for ${req.body.thinking}`);
+    const parsedThink = parseRouterModel(Router.think);
+    return { model: parsedThink.model, scenarioType: 'think', reasoningLevel: parsedThink.reasoningLevel };
+  }
   if (
     Array.isArray(req.body.tools) &&
     req.body.tools.some((tool: any) => tool.type?.startsWith("web_search")) &&
@@ -206,12 +211,6 @@ const getUseModel = async (
   ) {
     const parsedWs = parseRouterModel(Router.webSearch);
     return { model: parsedWs.model, scenarioType: 'webSearch', reasoningLevel: parsedWs.reasoningLevel };
-  }
-  // if exits thinking, use the think model
-  if (req.body.thinking && Router?.think) {
-    req.log.info(`Using think model for ${req.body.thinking}`);
-    const parsedThink = parseRouterModel(Router.think);
-    return { model: parsedThink.model, scenarioType: 'think', reasoningLevel: parsedThink.reasoningLevel };
   }
   const parsedDefault = parseRouterModel(Router?.default);
   return { model: parsedDefault.model, scenarioType: 'default', reasoningLevel: parsedDefault.reasoningLevel };

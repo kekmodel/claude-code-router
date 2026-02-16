@@ -7,9 +7,29 @@ import { createServer, type Server } from "node:http";
 import { randomBytes, createHash } from "node:crypto";
 import type { OAuthProviderConfig, OAuthTokenResponse, PKCEPair } from "../types";
 
-// Track active callback servers per provider to prevent port conflicts
-// when login is triggered multiple times (e.g., from the UI)
-const activeServers = new Map<string, Server>();
+// Track active flows per provider to reuse when login is triggered multiple times.
+// This prevents state mismatch (reusing the same state/pkce) and port conflicts.
+interface ActiveFlow {
+  server: Server;
+  authUrl: string;
+  waitForCallback: () => Promise<string>;
+  pkce: PKCEPair;
+  state: string;
+  timeout: ReturnType<typeof setTimeout>;
+}
+const activeFlows = new Map<string, ActiveFlow>();
+
+// Auto-cleanup stale flows after 5 minutes
+const FLOW_TIMEOUT_MS = 5 * 60 * 1000;
+
+function cleanupFlow(providerName: string) {
+  const flow = activeFlows.get(providerName);
+  if (flow) {
+    clearTimeout(flow.timeout);
+    try { flow.server.close(); } catch {}
+    activeFlows.delete(providerName);
+  }
+}
 
 /**
  * Generate PKCE code verifier and code challenge
@@ -23,33 +43,50 @@ export function generatePKCE(): PKCEPair {
 }
 
 /**
- * Start a local HTTP server to receive the OAuth callback
- * Returns the authorization URL and a promise that resolves with the auth code
+ * Start a local HTTP server to receive the OAuth callback.
+ * If an active flow already exists for this provider (server still listening),
+ * it is reused to prevent state mismatch and port conflicts.
+ * Returns the authorization URL, a callback waiter, and the pkce actually in use.
  */
-export function startAuthCodeFlow(
+export async function startAuthCodeFlow(
   config: OAuthProviderConfig,
   pkce: PKCEPair,
   state: string
-): {
+): Promise<{
   authUrl: string;
   waitForCallback: () => Promise<string>;
   server: Server;
-} {
+  pkce: PKCEPair;
+}> {
   if (!config.authorizationUrl) {
     throw new Error(`Authorization URL not configured for provider: ${config.name}`);
+  }
+
+  // Reuse existing active flow if the callback server is still listening.
+  // This prevents state mismatch when login is triggered multiple times
+  // (e.g., user clicks login in the UI while a flow is already in progress).
+  const existing = activeFlows.get(config.name);
+  if (existing && existing.server.listening) {
+    // Reset the auto-cleanup timeout
+    clearTimeout(existing.timeout);
+    existing.timeout = setTimeout(() => cleanupFlow(config.name), FLOW_TIMEOUT_MS);
+    return {
+      authUrl: existing.authUrl,
+      waitForCallback: existing.waitForCallback,
+      server: existing.server,
+      pkce: existing.pkce,
+    };
+  }
+
+  // Clean up stale entry if server is no longer listening
+  if (existing) {
+    cleanupFlow(config.name);
   }
 
   const port = config.callbackPort || 8085;
   const callbackPath = config.callbackPath || "/callback";
   const host = config.callbackHost || "localhost";
   const redirectUri = `http://${host}:${port}${callbackPath}`;
-
-  // Close any existing callback server for this provider to avoid port conflicts
-  const existingServer = activeServers.get(config.name);
-  if (existingServer) {
-    try { existingServer.close(); } catch {}
-    activeServers.delete(config.name);
-  }
 
   // Build authorization URL
   const params = new URLSearchParams({
@@ -113,19 +150,34 @@ export function startAuthCodeFlow(
     }
   });
 
-  server.listen(port);
-  activeServers.set(config.name, server);
+  // Listen with proper error handling for EADDRINUSE
+  await new Promise<void>((resolve, reject) => {
+    server.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        reject(new Error(
+          `Port ${port} is already in use. A previous login flow may still be active.\n` +
+          `Try stopping the other process first, or run: lsof -ti:${port} | xargs kill`
+        ));
+      } else {
+        reject(err);
+      }
+    });
+    server.listen(port, () => resolve());
+  });
 
   const waitForCallback = async (): Promise<string> => {
     try {
       return await callbackPromise;
     } finally {
-      server.close();
-      activeServers.delete(config.name);
+      cleanupFlow(config.name);
     }
   };
 
-  return { authUrl, waitForCallback, server };
+  // Track the complete flow and set auto-cleanup timeout
+  const timeout = setTimeout(() => cleanupFlow(config.name), FLOW_TIMEOUT_MS);
+  activeFlows.set(config.name, { server, authUrl, waitForCallback, pkce, state, timeout });
+
+  return { authUrl, waitForCallback, server, pkce };
 }
 
 /**
@@ -149,7 +201,6 @@ export async function exchangeCodeForToken(
     code,
     redirect_uri: callbackUri,
     code_verifier: codeVerifier,
-    ...(config.extraParams || {}),
   });
 
   const response = await fetch(config.tokenUrl, {

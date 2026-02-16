@@ -371,6 +371,11 @@ class ApiClient {
       }>;
     }>("/router/models");
   }
+
+  // Sync OAuth provider models into config
+  async syncOAuthModels(provider: string): Promise<{ provider: string; totalModels: number; added: number; models: string[] }> {
+    return this.get<{ provider: string; totalModels: number; added: number; models: string[] }>(`/oauth/sync-models/${encodeURIComponent(provider)}`);
+  }
 }
 
 // Create a default instance of the API client
