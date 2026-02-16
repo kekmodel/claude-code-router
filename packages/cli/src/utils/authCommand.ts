@@ -70,7 +70,7 @@ const AUTH_CODE_PROVIDERS: Record<string, AuthCodeProviderConfig> = {
     "api_base_url": "https://api.openai.com",
     "auth_type": "oauth",
     "oauth_provider": "codex",
-    "models": ["gpt-4o", "o3-mini", "codex-mini"]
+    "models": ["gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.1-codex-mini"]
   }
 `,
   },
@@ -83,7 +83,7 @@ const AUTH_CODE_PROVIDERS: Record<string, AuthCodeProviderConfig> = {
     "api_base_url": "https://generativelanguage.googleapis.com",
     "auth_type": "oauth",
     "oauth_provider": "gemini",
-    "models": ["gemini-2.5-pro", "gemini-2.5-flash"]
+    "models": ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash"]
   }
 `,
   },
@@ -97,8 +97,8 @@ const AUTH_CODE_PROVIDERS: Record<string, AuthCodeProviderConfig> = {
     "api_base_url": "https://daily-cloudcode-pa.sandbox.googleapis.com",
     "auth_type": "oauth",
     "oauth_provider": "antigravity",
-    "models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro", "gemini-3-flash",
-               "claude-sonnet-4-5", "claude-sonnet-4-5-thinking", "claude-opus-4-6-thinking"]
+    "models": ["antigravity-claude-opus-4-6-thinking", "antigravity-gemini-3-pro",
+               "antigravity-claude-sonnet-4-5", "antigravity-gemini-3-flash"]
   }
 `,
   },
@@ -309,7 +309,7 @@ async function loginCopilot(): Promise<void> {
     "api_base_url": "https://api.githubcopilot.com",
     "auth_type": "oauth",
     "oauth_provider": "copilot",
-    "models": ["gpt-4o", "claude-sonnet-4-5"]
+    "models": ["claude-opus-4-6", "gpt-5.2-codex", "gpt-4.1", "claude-haiku-4.5", "gpt-5-mini", "gpt-4o"]
   }
 `);
   } catch (error: any) {

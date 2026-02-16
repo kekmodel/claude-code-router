@@ -16,9 +16,9 @@ Instead of configuring an `api_key` for each provider, you can use OAuth to auth
 
 | Provider | Flow | Service | Models |
 |----------|------|---------|--------|
-| `copilot` | Device Code | GitHub Copilot | `gpt-4o`, `claude-sonnet-4-5`, etc. |
-| `codex` | Auth Code + PKCE | ChatGPT Plus/Pro | `gpt-4o`, `o3-mini`, `codex-mini` |
-| `gemini` | Google OAuth | Google Gemini | `gemini-2.5-pro`, `gemini-2.5-flash` |
+| `copilot` | Device Code | GitHub Copilot | `claude-opus-4-6`, `gpt-5.2-codex`, `gpt-4.1`, `claude-haiku-4.5`, etc. |
+| `codex` | Auth Code + PKCE | ChatGPT Plus/Pro | `gpt-5.3-codex`, `gpt-5.2-codex`, `gpt-5.1-codex-mini` |
+| `gemini` | Google OAuth | Google Gemini | `gemini-3-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-pro` |
 | `antigravity` | Google OAuth | Antigravity Cloud | Gemini + Claude models |
 
 ## Quick Start
@@ -43,7 +43,7 @@ Add an OAuth provider to your `config.json`:
       "api_base_url": "https://api.githubcopilot.com",
       "auth_type": "oauth",
       "oauth_provider": "copilot",
-      "models": ["gpt-4o", "claude-sonnet-4-5"]
+      "models": ["claude-opus-4-6", "gpt-5.2-codex", "gpt-4.1", "claude-haiku-4.5", "gpt-5-mini", "gpt-4o"]
     }
   ]
 }
@@ -75,7 +75,7 @@ ccr auth login copilot
   "api_base_url": "https://api.githubcopilot.com",
   "auth_type": "oauth",
   "oauth_provider": "copilot",
-  "models": ["gpt-4o", "claude-sonnet-4-5"]
+  "models": ["claude-opus-4-6", "gpt-5.2-codex", "gpt-4.1", "claude-haiku-4.5", "gpt-5-mini", "gpt-4o"]
 }
 ```
 
@@ -95,7 +95,7 @@ ccr auth login codex
   "api_base_url": "https://api.openai.com",
   "auth_type": "oauth",
   "oauth_provider": "codex",
-  "models": ["gpt-4o", "o3-mini", "codex-mini"]
+  "models": ["gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.1-codex-mini"]
 }
 ```
 
@@ -115,7 +115,7 @@ ccr auth login gemini
   "api_base_url": "https://generativelanguage.googleapis.com",
   "auth_type": "oauth",
   "oauth_provider": "gemini",
-  "models": ["gemini-2.5-pro", "gemini-2.5-flash"]
+  "models": ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash"]
 }
 ```
 
@@ -134,9 +134,8 @@ ccr auth login antigravity
   "auth_type": "oauth",
   "oauth_provider": "antigravity",
   "models": [
-    "gemini-2.5-pro", "gemini-2.5-flash",
-    "gemini-3-pro", "gemini-3-flash",
-    "claude-sonnet-4-5", "claude-sonnet-4-5-thinking", "claude-opus-4-6-thinking"
+    "antigravity-claude-opus-4-6-thinking", "antigravity-gemini-3-pro",
+    "antigravity-claude-sonnet-4-5", "antigravity-gemini-3-flash"
   ]
 }
 ```

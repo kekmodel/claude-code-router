@@ -173,21 +173,21 @@ OAuth providers use `auth_type` and `oauth_provider` instead of `api_key`:
       "api_base_url": "https://api.githubcopilot.com",
       "auth_type": "oauth",
       "oauth_provider": "copilot",
-      "models": ["gpt-4o", "claude-sonnet-4-5"]
+      "models": ["claude-opus-4-6", "gpt-5.2-codex", "gpt-4.1", "claude-haiku-4.5", "gpt-5-mini", "gpt-4o"]
     },
     {
       "name": "codex",
       "api_base_url": "https://api.openai.com",
       "auth_type": "oauth",
       "oauth_provider": "codex",
-      "models": ["gpt-4o", "o3-mini"]
+      "models": ["gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.1-codex-mini"]
     },
     {
       "name": "gemini",
       "api_base_url": "https://generativelanguage.googleapis.com",
       "auth_type": "oauth",
       "oauth_provider": "gemini",
-      "models": ["gemini-2.5-pro", "gemini-2.5-flash"]
+      "models": ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash"]
     },
     {
       "name": "openrouter",

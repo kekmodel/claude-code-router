@@ -76,7 +76,7 @@ Once authenticated, configure the provider in `config.json` using `auth_type: "o
   "api_base_url": "https://api.githubcopilot.com",
   "auth_type": "oauth",
   "oauth_provider": "copilot",
-  "models": ["gpt-4o", "claude-sonnet-4-5"]
+  "models": ["claude-opus-4-6", "gpt-5.2-codex", "gpt-4.1", "claude-haiku-4.5", "gpt-5-mini", "gpt-4o"]
 }
 ```
 
